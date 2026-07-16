@@ -13,7 +13,7 @@ let customer;
 beforeAll(async () => {
   await sequelize.sync({ force: true });
   await seedRoles();
-  const admin = await createUser({ roleName: 'admin', email: '[email protected]' });
+  const admin = await createUser({ roleName: 'admin', email: 'admin-order-test@example.test' });
   adminToken = generateToken(admin);
 
   product = await Product.create({ sku: 'P-100', name: 'ماست ۲ کیلویی', unit_price: 85000, stock_quantity: 20, reorder_level: 5 });

@@ -8,10 +8,13 @@ function generateOrderNumber() {
 }
 
 // ثبت سفارش جدید همراه با اقلام آن و کسر موجودی انبار (به‌صورت تراکنشی)
+// اگر is_quote=true ارسال شود، سفارش به‌عنوان پیش‌فاکتور ثبت می‌شود و موجودی
+// انبار کسر نمی‌شود؛ بعداً از طریق convert-to-order به سفارش قطعی تبدیل می‌شود.
 async function create(req, res) {
   const t = await sequelize.transaction();
   try {
-    const { customer_id, salesperson_id, distributor_id, items, notes } = req.body;
+    const { customer_id, salesperson_id, distributor_id, items, notes, is_quote } = req.body;
+    const isQuote = Boolean(is_quote);
 
     if (!customer_id || !Array.isArray(items) || items.length === 0) {
       await t.rollback();
@@ -33,7 +36,7 @@ async function create(req, res) {
         await t.rollback();
         return res.status(404).json({ message: `کالا با شناسه ${item.product_id} یافت نشد.` });
       }
-      if (product.stock_quantity < item.quantity) {
+      if (!isQuote && product.stock_quantity < item.quantity) {
         await t.rollback();
         return res.status(400).json({ message: `موجودی کالای «${product.name}» کافی نیست.` });
       }
@@ -48,8 +51,10 @@ async function create(req, res) {
         line_total: lineTotal,
       });
 
-      // کسر موجودی انبار
-      await product.update({ stock_quantity: product.stock_quantity - item.quantity }, { transaction: t });
+      // برای پیش‌فاکتور موجودی انبار کسر نمی‌شود
+      if (!isQuote) {
+        await product.update({ stock_quantity: product.stock_quantity - item.quantity }, { transaction: t });
+      }
     }
 
     const order = await Order.create(
@@ -60,7 +65,8 @@ async function create(req, res) {
         distributor_id: distributor_id || null,
         total_amount: totalAmount,
         notes,
-        status: 'pending',
+        is_quote: isQuote,
+        status: isQuote ? 'quote' : 'pending',
       },
       { transaction: t }
     );
@@ -82,9 +88,52 @@ async function create(req, res) {
   }
 }
 
+// تبدیل یک پیش‌فاکتور به سفارش قطعی: موجودی انبار را بررسی و کسر می‌کند
+async function convertToOrder(req, res) {
+  const t = await sequelize.transaction();
+  try {
+    const order = await Order.findByPk(req.params.id, {
+      include: [{ model: OrderItem, as: 'items' }],
+      transaction: t,
+    });
+    if (!order) {
+      await t.rollback();
+      return res.status(404).json({ message: 'سفارش یافت نشد.' });
+    }
+    if (!order.is_quote) {
+      await t.rollback();
+      return res.status(400).json({ message: 'این سفارش پیش‌فاکتور نیست.' });
+    }
+
+    for (const item of order.items) {
+      const product = await Product.findByPk(item.product_id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!product) {
+        await t.rollback();
+        return res.status(404).json({ message: `کالا با شناسه ${item.product_id} یافت نشد.` });
+      }
+      if (product.stock_quantity < item.quantity) {
+        await t.rollback();
+        return res.status(400).json({ message: `موجودی کالای «${product.name}» کافی نیست.` });
+      }
+      await product.update({ stock_quantity: product.stock_quantity - item.quantity }, { transaction: t });
+    }
+
+    await order.update({ is_quote: false, status: 'pending' }, { transaction: t });
+    await t.commit();
+
+    const fullOrder = await Order.findByPk(order.id, {
+      include: [{ model: OrderItem, as: 'items', include: Product }, Customer],
+    });
+    return res.json(fullOrder);
+  } catch (err) {
+    await t.rollback();
+    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+  }
+}
+
 async function getAll(req, res) {
   try {
-    const { search, status } = req.query;
+    const { search, status, route_id } = req.query;
     const { page, limit, offset } = parsePagination(req.query);
 
     const where = {};
@@ -99,9 +148,15 @@ async function getAll(req, res) {
       where.distributor_id = distributor ? distributor.id : -1; // -1 یعنی هیچ نتیجه‌ای
     }
 
+    // فیلتر بر اساس مسیر مشتری (برای اینکه توزیع‌کننده بتواند سفارش‌های یک مسیر را ببیند)
+    const customerInclude = { model: Customer };
+    if (route_id) {
+      customerInclude.where = { route_id };
+    }
+
     const result = await Order.findAndCountAll({
       where,
-      include: [Customer, { model: OrderItem, as: 'items', include: Product }],
+      include: [customerInclude, { model: OrderItem, as: 'items', include: Product }],
       order: [['id', 'DESC']],
       limit,
       offset,
@@ -164,4 +219,4 @@ async function assignDistributor(req, res) {
   }
 }
 
-module.exports = { create, getAll, getOne, updateStatus, assignDistributor };
+module.exports = { create, getAll, getOne, updateStatus, assignDistributor, convertToOrder };

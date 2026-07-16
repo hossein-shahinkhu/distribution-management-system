@@ -7,6 +7,7 @@ const createOrderRules = [
     .withMessage('حداقل یک قلم کالا باید در سفارش باشد.'),
   body('items.*.product_id').isInt({ min: 1 }).withMessage('کالای انتخاب‌شده معتبر نیست.'),
   body('items.*.quantity').isInt({ min: 1 }).withMessage('تعداد باید عدد صحیح مثبت باشد.'),
+  body('is_quote').optional().isBoolean().withMessage('is_quote باید مقدار boolean باشد.'),
 ];
 
 module.exports = { createOrderRules };

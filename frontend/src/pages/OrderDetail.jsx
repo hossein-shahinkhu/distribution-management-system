@@ -69,6 +69,16 @@ export default function OrderDetail() {
     }
   }
 
+  async function handleConvertToOrder() {
+    try {
+      await ordersApi.convertToOrder(order.id);
+      setMessage('پیش‌فاکتور با موفقیت به سفارش قطعی تبدیل شد.');
+      load();
+    } catch (err) {
+      setMessage(err.response?.data?.message || 'تبدیل به سفارش قطعی ناموفق بود.');
+    }
+  }
+
   if (loading || !order) {
     return (
       <Layout title="جزئیات سفارش">
@@ -120,6 +130,18 @@ export default function OrderDetail() {
         </div>
 
         <div className="space-y-6">
+          {order.is_quote && (
+            <div className="rounded-2xl border border-navy-100 bg-white p-5">
+              <h3 className="mb-3 font-bold text-ink">پیش‌فاکتور</h3>
+              <p className="mb-3 text-sm text-ink/60">
+                این یک پیش‌فاکتور است و موجودی انبار برای آن کسر نشده است.
+              </p>
+              <Button className="w-full" onClick={handleConvertToOrder}>
+                تبدیل به سفارش قطعی
+              </Button>
+            </div>
+          )}
+
           <div className="rounded-2xl border border-navy-100 bg-white p-5">
             <h3 className="mb-3 font-bold text-ink">تغییر وضعیت سفارش</h3>
             <Select value={order.status} onChange={(e) => handleStatusChange(e.target.value)}>

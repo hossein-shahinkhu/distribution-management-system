@@ -15,7 +15,7 @@ const ROLE_OPTIONS = [
 ];
 
 const EMPTY_FORM = { full_name: '', email: '', password: '', phone: '', role_name: 'salesperson' };
-const EMPTY_EDIT_FORM = { full_name: '', phone: '', role_name: '', is_active: true };
+const EMPTY_EDIT_FORM = { full_name: '', phone: '', role_name: '', is_active: true, commission_rate: 0 };
 
 export default function Users() {
   const [users, setUsers] = useState([]);
@@ -51,6 +51,7 @@ export default function Users() {
       phone: u.phone || '',
       role_name: u.Role?.name || 'salesperson',
       is_active: u.is_active,
+      commission_rate: u.commission_rate || 0,
     });
     setEditingId(u.id);
     setError('');
@@ -163,6 +164,15 @@ export default function Users() {
               <option key={r.value} value={r.value}>{r.label}</option>
             ))}
           </Select>
+          <Input
+            label="درصد پورسانت"
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={editForm.commission_rate}
+            onChange={(e) => setEditForm({ ...editForm, commission_rate: e.target.value })}
+          />
           <label className="flex items-center gap-2 text-sm text-ink/70">
             <input
               type="checkbox"

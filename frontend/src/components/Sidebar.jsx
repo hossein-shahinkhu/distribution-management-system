@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: '/orders', label: 'سفارش‌ها', roles: ['admin', 'salesperson', 'warehouse_keeper', 'distributor'] },
   { to: '/products', label: 'کالاها و انبار', roles: ['admin', 'warehouse_keeper'] },
   { to: '/customers', label: 'مشتریان', roles: ['admin', 'salesperson'] },
+  { to: '/routes', label: 'مسیرها', roles: ['admin'] },
   { to: '/distributors', label: 'توزیع‌کنندگان', roles: ['admin'] },
   { to: '/invoices', label: 'فاکتورها', roles: ['admin', 'salesperson'] },
   { to: '/reports', label: 'گزارش‌ها', roles: ['admin', 'salesperson', 'warehouse_keeper'] },

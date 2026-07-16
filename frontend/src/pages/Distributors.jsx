@@ -8,7 +8,7 @@ import EmptyState from '../components/EmptyState';
 import { distributorsApi } from '../api/misc';
 import { usersApi } from '../api/users';
 
-const EMPTY_FORM = { full_name: '', phone: '', vehicle_plate: '', vehicle_type: '', user_id: '' };
+const EMPTY_FORM = { full_name: '', phone: '', vehicle_plate: '', vehicle_type: '', user_id: '', commission_rate: 0 };
 
 export default function Distributors() {
   const [list, setList] = useState([]);
@@ -51,6 +51,7 @@ export default function Distributors() {
       vehicle_plate: d.vehicle_plate || '',
       vehicle_type: d.vehicle_type || '',
       user_id: d.user_id || '',
+      commission_rate: d.commission_rate || 0,
     });
     setEditingId(d.id);
     setError('');
@@ -138,6 +139,15 @@ export default function Distributors() {
             <Input label="پلاک خودرو" value={form.vehicle_plate} onChange={(e) => setForm({ ...form, vehicle_plate: e.target.value })} />
             <Input label="نوع وسیله نقلیه" value={form.vehicle_type} onChange={(e) => setForm({ ...form, vehicle_type: e.target.value })} />
           </div>
+          <Input
+            label="درصد پورسانت"
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={form.commission_rate}
+            onChange={(e) => setForm({ ...form, commission_rate: e.target.value })}
+          />
           <Select
             label="حساب کاربری برای ورود (اختیاری)"
             value={form.user_id}

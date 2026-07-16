@@ -11,7 +11,7 @@ let adminToken;
 beforeAll(async () => {
   await sequelize.sync({ force: true });
   await seedRoles();
-  const admin = await createUser({ roleName: 'admin', email: '[email protected]' });
+  const admin = await createUser({ roleName: 'admin', email: 'admin-product-test@example.test' });
   adminToken = generateToken(admin);
 });
 

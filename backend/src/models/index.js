@@ -9,6 +9,7 @@ const Distributor = require('./distributor.model');
 const Order = require('./order.model');
 const OrderItem = require('./orderItem.model');
 const Invoice = require('./invoice.model');
+const Route = require('./route.model');
 
 // ---------- روابط ----------
 
@@ -48,6 +49,10 @@ OrderItem.belongsTo(Product, { foreignKey: 'product_id' });
 Order.hasOne(Invoice, { foreignKey: 'order_id' });
 Invoice.belongsTo(Order, { foreignKey: 'order_id' });
 
+// Route <-> Customer (یک مسیر، چند مشتری برای گروه‌بندی جغرافیایی)
+Route.hasMany(Customer, { foreignKey: 'route_id' });
+Customer.belongsTo(Route, { foreignKey: 'route_id' });
+
 module.exports = {
   sequelize,
   Role,
@@ -59,4 +64,5 @@ module.exports = {
   Order,
   OrderItem,
   Invoice,
+  Route,
 };

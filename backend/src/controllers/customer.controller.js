@@ -35,11 +35,19 @@ async function getOne(req, res) {
 
 async function create(req, res) {
   try {
-    const { full_name, business_name, phone, address, city, credit_limit } = req.body;
+    const { full_name, business_name, phone, address, city, credit_limit, route_id } = req.body;
     if (!full_name || !phone) {
       return res.status(400).json({ message: 'نام و شماره تماس الزامی است.' });
     }
-    const customer = await Customer.create({ full_name, business_name, phone, address, city, credit_limit });
+    const customer = await Customer.create({
+      full_name,
+      business_name,
+      phone,
+      address,
+      city,
+      credit_limit,
+      route_id: route_id || null,
+    });
     return res.status(201).json(customer);
   } catch (err) {
     return res.status(500).json({ message: 'خطای سرور', error: err.message });

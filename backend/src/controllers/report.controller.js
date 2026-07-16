@@ -1,5 +1,5 @@
 const { Op, fn, col, literal } = require('sequelize');
-const { Order, OrderItem, Product, Distributor, sequelize } = require('../models');
+const { Order, OrderItem, Product, Distributor, User, Role, sequelize } = require('../models');
 
 // گزارش فروش بر اساس بازه زمانی
 async function salesReport(req, res) {
@@ -67,4 +67,60 @@ async function distributorPerformanceReport(req, res) {
   }
 }
 
-module.exports = { salesReport, inventoryReport, distributorPerformanceReport };
+// گزارش پورسانت فروشندگان و توزیع‌کنندگان بر اساس سفارش‌های تحویل‌شده در بازه
+async function commissionsReport(req, res) {
+  try {
+    const { from, to } = req.query;
+    const dateWhere = {};
+    if (from) dateWhere[Op.gte] = new Date(from);
+    if (to) dateWhere[Op.lte] = new Date(to);
+
+    const baseWhere = { status: 'delivered' };
+    if (from || to) baseWhere.order_date = dateWhere;
+
+    const salespeople = await User.findAll({
+      include: [{ model: Role, where: { name: 'salesperson' } }],
+    });
+    const distributors = await Distributor.findAll();
+
+    const results = [];
+
+    for (const sp of salespeople) {
+      const orders = await Order.findAll({
+        where: { ...baseWhere, salesperson_id: sp.id },
+        attributes: ['id', 'total_amount'],
+      });
+      const totalAmount = orders.reduce((sum, o) => sum + Number(o.total_amount), 0);
+      const rate = Number(sp.commission_rate) || 0;
+      results.push({
+        name: sp.full_name,
+        role: 'salesperson',
+        order_count: orders.length,
+        total_amount: totalAmount,
+        commission_amount: (totalAmount * rate) / 100,
+      });
+    }
+
+    for (const d of distributors) {
+      const orders = await Order.findAll({
+        where: { ...baseWhere, distributor_id: d.id },
+        attributes: ['id', 'total_amount'],
+      });
+      const totalAmount = orders.reduce((sum, o) => sum + Number(o.total_amount), 0);
+      const rate = Number(d.commission_rate) || 0;
+      results.push({
+        name: d.full_name,
+        role: 'distributor',
+        order_count: orders.length,
+        total_amount: totalAmount,
+        commission_amount: (totalAmount * rate) / 100,
+      });
+    }
+
+    return res.json(results);
+  } catch (err) {
+    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+  }
+}
+
+module.exports = { salesReport, inventoryReport, distributorPerformanceReport, commissionsReport };

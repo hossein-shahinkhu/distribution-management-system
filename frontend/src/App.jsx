@@ -10,6 +10,7 @@ import Distributors from './pages/Distributors';
 import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
 import Users from './pages/Users';
+import RoutesPage from './pages/Routes';
 
 export default function App() {
   return (
@@ -64,6 +65,14 @@ export default function App() {
         element={
           <ProtectedRoute roles={['admin']}>
             <Users />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/routes"
+        element={
+          <ProtectedRoute roles={['admin']}>
+            <RoutesPage />
           </ProtectedRoute>
         }
       />

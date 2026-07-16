@@ -31,6 +31,10 @@ Customer.init(
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 0,
     },
+    route_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
   },
   {
     sequelize,

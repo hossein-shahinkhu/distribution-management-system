@@ -25,6 +25,7 @@ export default {
           shipping: '#C4881F',
           delivered: '#2E7D5B',
           cancelled: '#C1443D',
+          quote: '#0E7C6B',
         },
         canvas: '#F5F7FA',
       },

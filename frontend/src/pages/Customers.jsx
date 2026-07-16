@@ -2,17 +2,20 @@ import { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
 import Input from '../components/Input';
+import Select from '../components/Select';
 import Modal from '../components/Modal';
 import EmptyState from '../components/EmptyState';
 import Pagination from '../components/Pagination';
 import { customersApi } from '../api/customers';
+import { routesApi } from '../api/misc';
 
-const EMPTY_FORM = { full_name: '', business_name: '', phone: '', address: '', city: '', credit_limit: 0 };
+const EMPTY_FORM = { full_name: '', business_name: '', phone: '', address: '', city: '', credit_limit: 0, route_id: '' };
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1 });
   const [search, setSearch] = useState('');
+  const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -27,6 +30,10 @@ export default function Customers() {
       setLoading(false);
     });
   }
+
+  useEffect(() => {
+    routesApi.getAll().then((r) => setRoutes(r.data));
+  }, []);
 
   useEffect(() => {
     const timeout = setTimeout(() => load(1), 300);
@@ -49,6 +56,7 @@ export default function Customers() {
       address: c.address || '',
       city: c.city || '',
       credit_limit: c.credit_limit,
+      route_id: c.route_id || '',
     });
     setEditingId(c.id);
     setError('');
@@ -59,8 +67,9 @@ export default function Customers() {
     e.preventDefault();
     setError('');
     try {
-      if (editingId) await customersApi.update(editingId, form);
-      else await customersApi.create(form);
+      const payload = { ...form, route_id: form.route_id || null };
+      if (editingId) await customersApi.update(editingId, payload);
+      else await customersApi.create(payload);
       setModalOpen(false);
       load(pagination.page);
     } catch (err) {
@@ -130,6 +139,12 @@ export default function Customers() {
             <Input label="شهر" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
           </div>
           <Input label="آدرس" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          <Select label="مسیر" value={form.route_id} onChange={(e) => setForm({ ...form, route_id: e.target.value })}>
+            <option value="">بدون مسیر</option>
+            {routes.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </Select>
           <Input label="سقف اعتبار (تومان)" type="number" value={form.credit_limit} onChange={(e) => setForm({ ...form, credit_limit: e.target.value })} />
           {error && <p className="text-sm text-[#C1443D]">{error}</p>}
           <Button type="submit" className="w-full">{editingId ? 'ذخیره تغییرات' : 'ثبت مشتری'}</Button>

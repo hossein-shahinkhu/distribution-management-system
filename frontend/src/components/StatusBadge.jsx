@@ -8,6 +8,7 @@ const STATUS_MAP = {
   unpaid: { label: 'پرداخت‌نشده', color: 'status-cancelled' },
   partial: { label: 'پرداخت جزئی', color: 'status-shipping' },
   paid: { label: 'پرداخت‌شده', color: 'status-delivered' },
+  quote: { label: 'پیش‌فاکتور', color: 'status-quote' },
 };
 
 const COLOR_STYLES = {
@@ -17,6 +18,7 @@ const COLOR_STYLES = {
   'status-shipping': 'bg-amber-400/10 text-amber-600',
   'status-delivered': 'bg-[#2E7D5B]/10 text-[#2E7D5B]',
   'status-cancelled': 'bg-[#C1443D]/10 text-[#C1443D]',
+  'status-quote': 'bg-[#0E7C6B]/10 text-[#0E7C6B]',
 };
 
 export default function StatusBadge({ status }) {

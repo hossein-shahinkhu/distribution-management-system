@@ -40,6 +40,11 @@ User.init(
       type: DataTypes.BOOLEAN,
       defaultValue: true,
     },
+    commission_rate: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: false,
+      defaultValue: 0,
+    },
   },
   {
     sequelize,

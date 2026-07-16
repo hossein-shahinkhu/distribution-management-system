@@ -14,7 +14,7 @@ async function getAll(req, res) {
 
 async function create(req, res) {
   try {
-    const { full_name, phone, vehicle_plate, vehicle_type, user_id } = req.body;
+    const { full_name, phone, vehicle_plate, vehicle_type, user_id, commission_rate } = req.body;
     if (!full_name || !phone) {
       return res.status(400).json({ message: 'نام و شماره تماس الزامی است.' });
     }
@@ -26,7 +26,14 @@ async function create(req, res) {
       }
     }
 
-    const distributor = await Distributor.create({ full_name, phone, vehicle_plate, vehicle_type, user_id: user_id || null });
+    const distributor = await Distributor.create({
+      full_name,
+      phone,
+      vehicle_plate,
+      vehicle_type,
+      user_id: user_id || null,
+      commission_rate: commission_rate || 0,
+    });
     return res.status(201).json(distributor);
   } catch (err) {
     return res.status(500).json({ message: 'خطای سرور', error: err.message });

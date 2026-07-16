@@ -34,9 +34,15 @@ Order.init(
         'processing',
         'out_for_delivery',
         'delivered',
-        'cancelled'
+        'cancelled',
+        'quote'
       ),
       defaultValue: 'pending',
+    },
+    is_quote: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     total_amount: {
       type: DataTypes.DECIMAL(14, 2),

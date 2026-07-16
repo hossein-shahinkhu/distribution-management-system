@@ -19,4 +19,12 @@ export const reportsApi = {
   sales: (params) => client.get('/reports/sales', { params }),
   inventory: () => client.get('/reports/inventory'),
   distributorPerformance: () => client.get('/reports/distributor-performance'),
+  commissions: (params) => client.get('/reports/commissions', { params }),
+};
+
+export const routesApi = {
+  getAll: () => client.get('/routes'),
+  create: (data) => client.post('/routes', data),
+  update: (id, data) => client.put(`/routes/${id}`, data),
+  remove: (id) => client.delete(`/routes/${id}`),
 };

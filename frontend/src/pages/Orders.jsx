@@ -11,6 +11,7 @@ import Pagination from '../components/Pagination';
 import { ordersApi } from '../api/orders';
 import { customersApi } from '../api/customers';
 import { productsApi } from '../api/products';
+import { routesApi } from '../api/misc';
 import { useAuth } from '../context/AuthContext';
 
 function formatCurrency(value) {
@@ -33,6 +34,8 @@ export default function Orders() {
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1 });
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [routeId, setRouteId] = useState('');
+  const [routes, setRoutes] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,12 +44,13 @@ export default function Orders() {
 
   const [customerId, setCustomerId] = useState('');
   const [items, setItems] = useState([{ product_id: '', quantity: 1 }]);
+  const [isQuote, setIsQuote] = useState(false);
 
   const canCreate = user?.role === 'admin' || user?.role === 'salesperson';
 
   function load(page = 1) {
     setLoading(true);
-    ordersApi.getAll({ search, status, page }).then((r) => {
+    ordersApi.getAll({ search, status, route_id: routeId, page }).then((r) => {
       setOrders(r.data.data);
       setPagination(r.data.pagination);
       setLoading(false);
@@ -57,12 +61,17 @@ export default function Orders() {
     const timeout = setTimeout(() => load(1), 300);
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, status]);
+  }, [search, status, routeId]);
+
+  useEffect(() => {
+    routesApi.getAll().then((r) => setRoutes(r.data));
+  }, []);
 
   function openCreate() {
     setError('');
     setCustomerId('');
     setItems([{ product_id: '', quantity: 1 }]);
+    setIsQuote(false);
     Promise.all([customersApi.getAll({ limit: 100 }), productsApi.getAll({ limit: 100 })]).then(([c, p]) => {
       setCustomers(c.data.data);
       setProducts(p.data.data.filter((prod) => prod.is_active));
@@ -93,6 +102,7 @@ export default function Orders() {
         items: items
           .filter((it) => it.product_id && it.quantity)
           .map((it) => ({ product_id: Number(it.product_id), quantity: Number(it.quantity) })),
+        is_quote: isQuote,
       };
       await ordersApi.create(payload);
       setModalOpen(false);
@@ -113,6 +123,14 @@ export default function Orders() {
             <Select value={status} onChange={(e) => setStatus(e.target.value)}>
               {STATUS_FILTER_OPTIONS.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </Select>
+          </div>
+          <div className="w-52">
+            <Select value={routeId} onChange={(e) => setRouteId(e.target.value)}>
+              <option value="">همه مسیرها</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
               ))}
             </Select>
           </div>
@@ -188,6 +206,11 @@ export default function Orders() {
               + افزودن قلم دیگر
             </button>
           </div>
+
+          <label className="flex items-center gap-2 text-sm text-ink/70">
+            <input type="checkbox" checked={isQuote} onChange={(e) => setIsQuote(e.target.checked)} />
+            این یک پیش‌فاکتور است (بدون کسر موجودی)
+          </label>
 
           {error && <p className="text-sm text-[#C1443D]">{error}</p>}
           <Button type="submit" className="w-full">ثبت سفارش</Button>

@@ -113,7 +113,7 @@ async function changePassword(req, res) {
 
 async function updateUser(req, res) {
   try {
-    const { full_name, phone, role_name, is_active } = req.body;
+    const { full_name, phone, role_name, is_active, commission_rate } = req.body;
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: 'کاربر یافت نشد.' });
 
@@ -121,6 +121,7 @@ async function updateUser(req, res) {
     if (full_name !== undefined) updates.full_name = full_name;
     if (phone !== undefined) updates.phone = phone;
     if (is_active !== undefined) updates.is_active = is_active;
+    if (commission_rate !== undefined) updates.commission_rate = commission_rate;
 
     if (role_name !== undefined) {
       const role = await Role.findOne({ where: { name: role_name } });
