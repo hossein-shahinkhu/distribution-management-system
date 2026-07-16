@@ -10,6 +10,7 @@ const Order = require('./order.model');
 const OrderItem = require('./orderItem.model');
 const Invoice = require('./invoice.model');
 const Route = require('./route.model');
+const TreasuryTransaction = require('./treasuryTransaction.model');
 
 // ---------- روابط ----------
 
@@ -53,6 +54,18 @@ Invoice.belongsTo(Order, { foreignKey: 'order_id' });
 Route.hasMany(Customer, { foreignKey: 'route_id' });
 Customer.belongsTo(Route, { foreignKey: 'route_id' });
 
+// Customer <-> TreasuryTransaction (دریافت/پرداخت مرتبط با یک مشتری خاص)
+Customer.hasMany(TreasuryTransaction, { foreignKey: 'customer_id' });
+TreasuryTransaction.belongsTo(Customer, { foreignKey: 'customer_id' });
+
+// Invoice <-> TreasuryTransaction (دریافت‌های مرتبط با یک فاکتور خاص)
+Invoice.hasMany(TreasuryTransaction, { foreignKey: 'invoice_id' });
+TreasuryTransaction.belongsTo(Invoice, { foreignKey: 'invoice_id' });
+
+// User <-> TreasuryTransaction (کاربری که تراکنش را ثبت کرده)
+User.hasMany(TreasuryTransaction, { foreignKey: 'created_by', as: 'treasuryTransactions' });
+TreasuryTransaction.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
+
 module.exports = {
   sequelize,
   Role,
@@ -65,4 +78,5 @@ module.exports = {
   OrderItem,
   Invoice,
   Route,
+  TreasuryTransaction,
 };

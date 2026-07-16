@@ -7,5 +7,6 @@ router.get('/sales', authenticate, authorize('admin', 'salesperson'), ctrl.sales
 router.get('/inventory', authenticate, authorize('admin', 'warehouse_keeper'), ctrl.inventoryReport);
 router.get('/distributor-performance', authenticate, authorize('admin'), ctrl.distributorPerformanceReport);
 router.get('/commissions', authenticate, authorize('admin'), ctrl.commissionsReport);
+router.get('/treasury-balance', authenticate, authorize('admin'), ctrl.treasuryBalanceReport);
 
 module.exports = router;

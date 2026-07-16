@@ -11,6 +11,7 @@ import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
 import Users from './pages/Users';
 import RoutesPage from './pages/Routes';
+import Treasury from './pages/Treasury';
 
 export default function App() {
   return (
@@ -73,6 +74,14 @@ export default function App() {
         element={
           <ProtectedRoute roles={['admin']}>
             <RoutesPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/treasury"
+        element={
+          <ProtectedRoute roles={['admin', 'salesperson']}>
+            <Treasury />
           </ProtectedRoute>
         }
       />

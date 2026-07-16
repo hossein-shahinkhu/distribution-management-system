@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { to: '/routes', label: 'مسیرها', roles: ['admin'] },
   { to: '/distributors', label: 'توزیع‌کنندگان', roles: ['admin'] },
   { to: '/invoices', label: 'فاکتورها', roles: ['admin', 'salesperson'] },
+  { to: '/treasury', label: 'خزانه‌داری', roles: ['admin', 'salesperson'] },
   { to: '/reports', label: 'گزارش‌ها', roles: ['admin', 'salesperson', 'warehouse_keeper'] },
   { to: '/users', label: 'مدیریت کاربران', roles: ['admin'] },
 ];

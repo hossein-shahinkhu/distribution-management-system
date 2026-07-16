@@ -20,6 +20,7 @@ export const reportsApi = {
   inventory: () => client.get('/reports/inventory'),
   distributorPerformance: () => client.get('/reports/distributor-performance'),
   commissions: (params) => client.get('/reports/commissions', { params }),
+  treasuryBalance: (params) => client.get('/reports/treasury-balance', { params }),
 };
 
 export const routesApi = {
@@ -27,4 +28,10 @@ export const routesApi = {
   create: (data) => client.post('/routes', data),
   update: (id, data) => client.put(`/routes/${id}`, data),
   remove: (id) => client.delete(`/routes/${id}`),
+};
+
+export const treasuryApi = {
+  getAll: (params = {}) => client.get('/treasury', { params }),
+  create: (data) => client.post('/treasury', data),
+  void: (id) => client.patch(`/treasury/${id}/void`),
 };

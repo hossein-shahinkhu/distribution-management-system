@@ -1,5 +1,5 @@
 const { Op, fn, col, literal } = require('sequelize');
-const { Order, OrderItem, Product, Distributor, User, Role, sequelize } = require('../models');
+const { Order, OrderItem, Product, Distributor, User, Role, TreasuryTransaction, sequelize } = require('../models');
 
 // گزارش فروش بر اساس بازه زمانی
 async function salesReport(req, res) {
@@ -123,4 +123,55 @@ async function commissionsReport(req, res) {
   }
 }
 
-module.exports = { salesReport, inventoryReport, distributorPerformanceReport, commissionsReport };
+// خلاصه وضعیت خزانه‌داری در یک بازه: جمع دریافت‌ها، جمع پرداخت‌ها، مانده خالص
+// و تفکیک بر اساس روش پرداخت (نقدی/بانکی/کارت/چک). تراکنش‌های باطل‌شده لحاظ نمی‌شوند.
+async function treasuryBalanceReport(req, res) {
+  try {
+    const { from, to } = req.query;
+    const where = { is_voided: false };
+    if (from || to) {
+      where.transaction_date = {};
+      if (from) where.transaction_date[Op.gte] = new Date(from);
+      if (to) where.transaction_date[Op.lte] = new Date(to);
+    }
+
+    const transactions = await TreasuryTransaction.findAll({
+      where,
+      attributes: ['type', 'amount', 'method'],
+    });
+
+    let totalReceipts = 0;
+    let totalPayments = 0;
+    const byMethod = {};
+
+    for (const t of transactions) {
+      const amount = Number(t.amount);
+      if (!byMethod[t.method]) byMethod[t.method] = { receipts: 0, payments: 0 };
+
+      if (t.type === 'receipt') {
+        totalReceipts += amount;
+        byMethod[t.method].receipts += amount;
+      } else {
+        totalPayments += amount;
+        byMethod[t.method].payments += amount;
+      }
+    }
+
+    return res.json({
+      totalReceipts,
+      totalPayments,
+      netBalance: totalReceipts - totalPayments,
+      byMethod,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+  }
+}
+
+module.exports = {
+  salesReport,
+  inventoryReport,
+  distributorPerformanceReport,
+  commissionsReport,
+  treasuryBalanceReport,
+};
