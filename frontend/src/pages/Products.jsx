@@ -10,6 +10,18 @@ import { productsApi, categoriesApi } from '../api/products';
 
 const EMPTY_FORM = { sku: '', name: '', category_id: '', unit_price: '', unit: 'عدد', stock_quantity: '', reorder_level: 10 };
 
+function ErrorAlert({ message }) {
+  if (!message) return null;
+  return (
+    <p className="flex items-center gap-1.5 rounded-xl bg-danger/8 px-4 py-2.5 text-sm text-danger">
+      <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      {message}
+    </p>
+  );
+}
+
 export default function Products() {
   const [products, setProducts] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1 });
@@ -32,7 +44,7 @@ export default function Products() {
   }
 
   useEffect(() => {
-    const timeout = setTimeout(() => load(1), 300); // debounce جستجو
+    const timeout = setTimeout(() => load(1), 300);
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
@@ -64,11 +76,8 @@ export default function Products() {
     setError('');
     try {
       const payload = { ...form, category_id: form.category_id || null };
-      if (editingId) {
-        await productsApi.update(editingId, payload);
-      } else {
-        await productsApi.create(payload);
-      }
+      if (editingId) await productsApi.update(editingId, payload);
+      else await productsApi.create(payload);
       setModalOpen(false);
       load(pagination.page);
     } catch (err) {
@@ -82,80 +91,153 @@ export default function Products() {
     load(pagination.page);
   }
 
+  function f(v) { return setForm((prev) => ({ ...prev, ...v })); }
+
   return (
     <Layout title="کالاها و انبار">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="w-72">
-          <Input placeholder="جستجوی نام یا کد کالا..." value={search} onChange={(e) => setSearch(e.target.value)} />
+      {/* Toolbar */}
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <span className="absolute inset-y-0 right-3.5 flex items-center text-muted pointer-events-none">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </span>
+          <Input
+            placeholder="جستجوی نام یا کد کالا..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pr-10"
+          />
         </div>
-        <Button onClick={openCreate}>+ افزودن کالای جدید</Button>
+        <Button onClick={openCreate}>
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          افزودن کالا
+        </Button>
       </div>
 
-      {loading ? (
-        <p className="text-ink/40">در حال بارگذاری...</p>
-      ) : products.length === 0 ? (
-        <EmptyState title="هنوز کالایی ثبت نشده" description="برای شروع، اولین کالای خود را اضافه کنید." />
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-navy-100 bg-white">
-          <table className="w-full text-right text-sm">
-            <thead className="bg-navy-50 text-ink/50">
+      {/* Table */}
+      <div className="card overflow-hidden rounded-2xl">
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
               <tr>
-                <th className="px-4 py-3 font-medium">کد کالا</th>
-                <th className="px-4 py-3 font-medium">نام</th>
-                <th className="px-4 py-3 font-medium">دسته‌بندی</th>
-                <th className="px-4 py-3 font-medium">قیمت واحد</th>
-                <th className="px-4 py-3 font-medium">موجودی</th>
-                <th className="px-4 py-3 font-medium"></th>
+                <th>کد کالا</th>
+                <th>نام کالا</th>
+                <th>دسته‌بندی</th>
+                <th>قیمت واحد</th>
+                <th>موجودی</th>
+                <th className="w-28"></th>
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => (
-                <tr key={p.id} className="border-t border-navy-100">
-                  <td className="px-4 py-3 tabular text-ink/60">{p.sku}</td>
-                  <td className="px-4 py-3 font-medium">{p.name}</td>
-                  <td className="px-4 py-3 text-ink/60">{p.Category?.name || '—'}</td>
-                  <td className="px-4 py-3 tabular">{new Intl.NumberFormat('fa-IR').format(p.unit_price)}</td>
-                  <td className="px-4 py-3 tabular">
-                    <span className={p.stock_quantity <= p.reorder_level ? 'font-semibold text-[#C1443D]' : ''}>
-                      {p.stock_quantity} {p.unit}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-left">
-                    <button onClick={() => openEdit(p)} className="ml-3 text-navy-600 hover:underline">
-                      ویرایش
-                    </button>
-                    <button onClick={() => handleDeactivate(p.id)} className="text-[#C1443D] hover:underline">
-                      غیرفعال کردن
-                    </button>
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i} className="border-b border-border">
+                    {[16, 32, 24, 20, 16, 24].map((w, j) => (
+                      <td key={j} className="px-4 py-4">
+                        <div className="skeleton h-4" style={{ width: `${w * 4}px` }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : products.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <EmptyState
+                      title="هنوز کالایی ثبت نشده"
+                      description="برای شروع، اولین کالای خود را اضافه کنید."
+                      action={<Button onClick={openCreate} size="sm">افزودن کالای اول</Button>}
+                    />
                   </td>
                 </tr>
-              ))}
+              ) : (
+                products.map((p) => (
+                  <tr key={p.id}>
+                    <td className="tabular font-mono text-xs text-muted">{p.sku}</td>
+                    <td className="font-medium">{p.name}</td>
+                    <td className="text-muted">{p.Category?.name || '—'}</td>
+                    <td className="tabular">{new Intl.NumberFormat('fa-IR').format(p.unit_price)} تومان</td>
+                    <td className="tabular">
+                      <div className="flex flex-col gap-1">
+                        <span className={`text-sm font-medium ${p.stock_quantity <= p.reorder_level ? 'text-danger' : 'text-ink'}`}>
+                          {p.stock_quantity} {p.unit}
+                        </span>
+                        <div className="progress-bar w-20">
+                          <div
+                            className={`progress-bar-fill ${p.stock_quantity <= p.reorder_level ? 'bg-danger' : 'bg-success'}`}
+                            style={{
+                              width: `${p.reorder_level > 0
+                                ? Math.min(100, (p.stock_quantity / (p.reorder_level * 3)) * 100)
+                                : 100}%`
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => openEdit(p)}
+                          className="text-xs font-medium text-navy-600 transition hover:text-navy-700 hover:underline"
+                        >
+                          ویرایش
+                        </button>
+                        <span className="text-border">|</span>
+                        <button
+                          onClick={() => handleDeactivate(p.id)}
+                          className="text-xs font-medium text-danger transition hover:text-danger/80 hover:underline"
+                        >
+                          غیرفعال
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
-      )}
+      </div>
 
       <Pagination page={pagination.page} totalPages={pagination.totalPages} onChange={load} />
 
+      {/* Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'ویرایش کالا' : 'افزودن کالای جدید'}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="کد کالا (SKU)" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} required />
-            <Input label="نام کالا" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          </div>
-          <Select label="دسته‌بندی" value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}>
-            <option value="">بدون دسته‌بندی</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </Select>
-          <div className="grid grid-cols-3 gap-3">
-            <Input label="قیمت واحد (تومان)" type="number" value={form.unit_price} onChange={(e) => setForm({ ...form, unit_price: e.target.value })} required />
-            <Input label="واحد شمارش" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-            <Input label="موجودی اولیه" type="number" value={form.stock_quantity} onChange={(e) => setForm({ ...form, stock_quantity: e.target.value })} />
-          </div>
-          <Input label="آستانه سفارش مجدد" type="number" value={form.reorder_level} onChange={(e) => setForm({ ...form, reorder_level: e.target.value })} />
-          {error && <p className="text-sm text-[#C1443D]">{error}</p>}
+          <fieldset className="space-y-4">
+            <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-muted">اطلاعات پایه</legend>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="کد کالا (SKU)" value={form.sku} onChange={(e) => f({ sku: e.target.value })} required />
+              <Input label="نام کالا" value={form.name} onChange={(e) => f({ name: e.target.value })} required />
+            </div>
+            <Select label="دسته‌بندی" value={form.category_id} onChange={(e) => f({ category_id: e.target.value })}>
+              <option value="">بدون دسته‌بندی</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </Select>
+          </fieldset>
+
+          <fieldset className="space-y-4">
+            <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-muted">قیمت و موجودی</legend>
+            <div className="grid grid-cols-3 gap-3">
+              <Input label="قیمت واحد (تومان)" type="number" value={form.unit_price} onChange={(e) => f({ unit_price: e.target.value })} required />
+              <Input label="واحد شمارش" value={form.unit} onChange={(e) => f({ unit: e.target.value })} />
+              <Input label="موجودی اولیه" type="number" value={form.stock_quantity} onChange={(e) => f({ stock_quantity: e.target.value })} />
+            </div>
+            <Input
+              label="آستانه سفارش مجدد"
+              type="number"
+              value={form.reorder_level}
+              onChange={(e) => f({ reorder_level: e.target.value })}
+              hint="هنگامی که موجودی به این عدد برسد، هشدار نمایش داده می‌شود."
+            />
+          </fieldset>
+
+          <ErrorAlert message={error} />
           <Button type="submit" className="w-full">{editingId ? 'ذخیره تغییرات' : 'ثبت کالا'}</Button>
         </form>
       </Modal>
