@@ -12,50 +12,33 @@ const EMPTY_FORM = {
   description: '',
 };
 
-// مودال ثبت سریع یک تراکنش خزانه‌داری، متصل به یک فاکتور فروش یا فاکتور خرید
-// مشخص. برای فاکتور فروش: type="receipt" و invoiceId (+ customerId اختیاری).
-// برای فاکتور خرید: type="payment" و purchaseInvoiceId.
 export default function TreasuryQuickEntryModal({
-  open,
-  onClose,
-  type,
-  invoiceId,
-  purchaseInvoiceId,
-  customerId,
-  onSuccess,
+  open, onClose, type, invoiceId, purchaseInvoiceId, customerId, onSuccess,
 }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (open) {
-      setForm(EMPTY_FORM);
-      setError('');
-    }
+    if (open) { setForm(EMPTY_FORM); setError(''); }
   }, [open]);
 
   async function handleSubmit(e) {
-    e.preventDefault();
-    setError('');
+    e.preventDefault(); setError('');
     try {
       await treasuryApi.create({
-        type,
-        amount: Number(form.amount),
-        method: form.method,
-        transaction_date: form.transaction_date,
-        description: form.description,
+        type, amount: Number(form.amount), method: form.method,
+        transaction_date: form.transaction_date, description: form.description,
         invoice_id: invoiceId || null,
         purchase_invoice_id: purchaseInvoiceId || null,
         customer_id: customerId || null,
       });
-      onClose();
-      onSuccess?.();
-    } catch (err) {
-      setError(err.response?.data?.message || 'ثبت تراکنش ناموفق بود.');
-    }
+      onClose(); onSuccess?.();
+    } catch (err) { setError(err.response?.data?.message || 'ثبت تراکنش ناموفق بود.'); }
   }
 
   const title = type === 'receipt' ? 'ثبت دریافت' : 'ثبت پرداخت';
+
+  function f(v) { setForm((p) => ({ ...p, ...v })); }
 
   return (
     <Modal open={open} onClose={onClose} title={title}>
@@ -66,10 +49,10 @@ export default function TreasuryQuickEntryModal({
             type="number"
             min="1"
             value={form.amount}
-            onChange={(e) => setForm({ ...form, amount: e.target.value })}
+            onChange={(e) => f({ amount: e.target.value })}
             required
           />
-          <Select label="روش" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
+          <Select label="روش" value={form.method} onChange={(e) => f({ method: e.target.value })}>
             <option value="cash">نقدی</option>
             <option value="bank_transfer">انتقال بانکی</option>
             <option value="card">کارت</option>
@@ -80,15 +63,22 @@ export default function TreasuryQuickEntryModal({
           label="تاریخ"
           type="date"
           value={form.transaction_date}
-          onChange={(e) => setForm({ ...form, transaction_date: e.target.value })}
+          onChange={(e) => f({ transaction_date: e.target.value })}
           required
         />
         <Input
           label="توضیحات (اختیاری)"
           value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
+          onChange={(e) => f({ description: e.target.value })}
         />
-        {error && <p className="text-sm text-[#C1443D]">{error}</p>}
+        {error && (
+          <p className="flex items-center gap-1.5 rounded-xl bg-danger/8 px-4 py-2.5 text-sm text-danger">
+            <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {error}
+          </p>
+        )}
         <Button type="submit" className="w-full">{title}</Button>
       </form>
     </Modal>

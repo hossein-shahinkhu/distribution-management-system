@@ -18,10 +18,7 @@ export default function Invoices() {
 
   function load() {
     setLoading(true);
-    invoicesApi.getAll().then((r) => {
-      setInvoices(r.data);
-      setLoading(false);
-    });
+    invoicesApi.getAll().then((r) => { setInvoices(r.data); setLoading(false); });
   }
 
   useEffect(load, []);
@@ -31,53 +28,72 @@ export default function Invoices() {
     load();
   }
 
-  function openReceiptModal(invoice) {
-    setSelectedInvoice(invoice);
-    setReceiptModalOpen(true);
-  }
-
   return (
     <Layout title="فاکتورها">
-      {loading ? (
-        <p className="text-ink/40">در حال بارگذاری...</p>
-      ) : invoices.length === 0 ? (
-        <EmptyState title="هنوز فاکتوری صادر نشده" description="از صفحه جزئیات سفارش می‌توانید فاکتور صادر کنید." />
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-navy-100 bg-white">
-          <table className="w-full text-right text-sm">
-            <thead className="bg-navy-50 text-ink/50">
+      <div className="card overflow-hidden rounded-2xl">
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
               <tr>
-                <th className="px-4 py-3 font-medium">شماره فاکتور</th>
-                <th className="px-4 py-3 font-medium">مشتری</th>
-                <th className="px-4 py-3 font-medium">مبلغ کل</th>
-                <th className="px-4 py-3 font-medium">وضعیت پرداخت</th>
-                <th className="px-4 py-3 font-medium">تغییر وضعیت</th>
-                <th className="px-4 py-3 font-medium"></th>
+                <th>شماره فاکتور</th>
+                <th>مشتری</th>
+                <th>مبلغ کل</th>
+                <th>وضعیت پرداخت</th>
+                <th>تغییر وضعیت</th>
+                <th className="w-24"></th>
               </tr>
             </thead>
             <tbody>
-              {invoices.map((inv) => (
-                <tr key={inv.id} className="border-t border-navy-100">
-                  <td className="px-4 py-3 tabular">{inv.invoice_number}</td>
-                  <td className="px-4 py-3">{inv.Order?.Customer?.full_name || '—'}</td>
-                  <td className="px-4 py-3 tabular">{formatCurrency(inv.total_amount)}</td>
-                  <td className="px-4 py-3"><StatusBadge status={inv.payment_status} /></td>
-                  <td className="px-4 py-3">
-                    <Select value={inv.payment_status} onChange={(e) => handlePaymentChange(inv.id, e.target.value)} className="!py-1.5">
-                      <option value="unpaid">پرداخت‌نشده</option>
-                      <option value="partial">پرداخت جزئی</option>
-                      <option value="paid">پرداخت‌شده</option>
-                    </Select>
-                  </td>
-                  <td className="px-4 py-3 text-left">
-                    <button onClick={() => openReceiptModal(inv)} className="text-navy-600 hover:underline">ثبت دریافت</button>
+              {loading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i} className="border-b border-border">
+                    {[24, 32, 28, 20, 32, 20].map((w, j) => (
+                      <td key={j} className="px-4 py-4"><div className="skeleton h-4" style={{ width: `${w * 4}px` }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : invoices.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <EmptyState
+                      title="هنوز فاکتوری صادر نشده"
+                      description="از صفحه جزئیات سفارش می‌توانید فاکتور صادر کنید."
+                    />
                   </td>
                 </tr>
-              ))}
+              ) : (
+                invoices.map((inv) => (
+                  <tr key={inv.id}>
+                    <td className="tabular font-mono text-xs text-muted">{inv.invoice_number}</td>
+                    <td className="font-medium">{inv.Order?.Customer?.full_name || '—'}</td>
+                    <td className="tabular">{formatCurrency(inv.total_amount)}</td>
+                    <td><StatusBadge status={inv.payment_status} /></td>
+                    <td>
+                      <Select
+                        value={inv.payment_status}
+                        onChange={(e) => handlePaymentChange(inv.id, e.target.value)}
+                        className="!py-1.5 text-xs"
+                      >
+                        <option value="unpaid">پرداخت‌نشده</option>
+                        <option value="partial">پرداخت جزئی</option>
+                        <option value="paid">پرداخت‌شده</option>
+                      </Select>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => { setSelectedInvoice(inv); setReceiptModalOpen(true); }}
+                        className="text-xs font-medium text-navy-600 hover:underline"
+                      >
+                        ثبت دریافت
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
-      )}
+      </div>
 
       <TreasuryQuickEntryModal
         open={receiptModalOpen}

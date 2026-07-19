@@ -18,91 +18,89 @@ export default function RoutesPage() {
 
   function load() {
     setLoading(true);
-    routesApi.getAll().then((r) => {
-      setRoutes(r.data);
-      setLoading(false);
-    });
+    routesApi.getAll().then((r) => { setRoutes(r.data); setLoading(false); });
   }
 
   useEffect(load, []);
 
-  function openCreate() {
-    setForm(EMPTY_FORM);
-    setEditingId(null);
-    setError('');
-    setModalOpen(true);
-  }
-
-  function openEdit(route) {
-    setForm({ name: route.name, description: route.description || '' });
-    setEditingId(route.id);
-    setError('');
-    setModalOpen(true);
-  }
+  function openCreate() { setForm(EMPTY_FORM); setEditingId(null); setError(''); setModalOpen(true); }
+  function openEdit(r) { setForm({ name: r.name, description: r.description || '' }); setEditingId(r.id); setError(''); setModalOpen(true); }
 
   async function handleSubmit(e) {
-    e.preventDefault();
-    setError('');
+    e.preventDefault(); setError('');
     try {
       if (editingId) await routesApi.update(editingId, form);
       else await routesApi.create(form);
-      setModalOpen(false);
-      load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'ثبت اطلاعات ناموفق بود.');
-    }
+      setModalOpen(false); load();
+    } catch (err) { setError(err.response?.data?.message || 'ثبت اطلاعات ناموفق بود.'); }
   }
 
   async function handleDelete(id) {
     if (!confirm('این مسیر حذف شود؟ مشتریان متصل به آن بدون مسیر خواهند شد.')) return;
-    await routesApi.remove(id);
-    load();
+    await routesApi.remove(id); load();
   }
 
   return (
     <Layout title="مسیرها">
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-ink/50">
-          مسیرها برای گروه‌بندی جغرافیایی مشتریان و بهینه‌سازی مسیر توزیع‌کننده‌ها استفاده می‌شوند.
-        </p>
-        <Button onClick={openCreate}>+ افزودن مسیر</Button>
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <p className="text-sm text-muted">مسیرها برای گروه‌بندی جغرافیایی مشتریان و بهینه‌سازی مسیر توزیع‌کننده‌ها استفاده می‌شوند.</p>
+        <Button onClick={openCreate} className="shrink-0">
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+          افزودن مسیر
+        </Button>
       </div>
 
-      {loading ? (
-        <p className="text-ink/40">در حال بارگذاری...</p>
-      ) : routes.length === 0 ? (
-        <EmptyState title="هنوز مسیری ثبت نشده" description="اولین مسیر را اضافه کنید." />
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-navy-100 bg-white">
-          <table className="w-full text-right text-sm">
-            <thead className="bg-navy-50 text-ink/50">
+      <div className="card overflow-hidden rounded-2xl">
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
               <tr>
-                <th className="px-4 py-3 font-medium">نام مسیر</th>
-                <th className="px-4 py-3 font-medium">توضیحات</th>
-                <th className="px-4 py-3 font-medium"></th>
+                <th>نام مسیر</th>
+                <th>توضیحات</th>
+                <th className="w-24"></th>
               </tr>
             </thead>
             <tbody>
-              {routes.map((r) => (
-                <tr key={r.id} className="border-t border-navy-100">
-                  <td className="px-4 py-3 font-medium">{r.name}</td>
-                  <td className="px-4 py-3 text-ink/60">{r.description || '—'}</td>
-                  <td className="px-4 py-3 text-left">
-                    <button onClick={() => openEdit(r)} className="ml-3 text-navy-600 hover:underline">ویرایش</button>
-                    <button onClick={() => handleDelete(r.id)} className="text-[#C1443D] hover:underline">حذف</button>
-                  </td>
-                </tr>
-              ))}
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i} className="border-b border-border">
+                    {[28, 48, 16].map((w, j) => (
+                      <td key={j} className="px-4 py-4"><div className="skeleton h-4" style={{ width: `${w * 4}px` }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : routes.length === 0 ? (
+                <tr><td colSpan={3}><EmptyState title="هنوز مسیری ثبت نشده" description="اولین مسیر را اضافه کنید." action={<Button onClick={openCreate} size="sm">افزودن مسیر</Button>} /></td></tr>
+              ) : (
+                routes.map((r) => (
+                  <tr key={r.id}>
+                    <td className="font-medium">{r.name}</td>
+                    <td className="text-muted">{r.description || '—'}</td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => openEdit(r)} className="text-xs font-medium text-navy-600 hover:underline">ویرایش</button>
+                        <span className="text-border">|</span>
+                        <button onClick={() => handleDelete(r.id)} className="text-xs font-medium text-danger hover:underline">حذف</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
-      )}
+      </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'ویرایش مسیر' : 'افزودن مسیر'}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Input label="نام مسیر" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          <Input label="توضیحات" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          {error && <p className="text-sm text-[#C1443D]">{error}</p>}
+          <Input label="نام مسیر" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
+          <Input label="توضیحات" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
+          {error && (
+            <p className="flex items-center gap-1.5 rounded-xl bg-danger/8 px-4 py-2.5 text-sm text-danger">
+              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              {error}
+            </p>
+          )}
           <Button type="submit" className="w-full">{editingId ? 'ذخیره تغییرات' : 'ثبت مسیر'}</Button>
         </form>
       </Modal>
