@@ -33,6 +33,9 @@ app.use('/api/invoices', require('./routes/invoice.routes'));
 app.use('/api/reports', require('./routes/report.routes'));
 app.use('/api/routes', require('./routes/route.routes'));
 app.use('/api/treasury', require('./routes/treasury.routes'));
+app.use('/api/suppliers', require('./routes/supplier.routes'));
+app.use('/api/purchase-orders', require('./routes/purchaseOrder.routes'));
+app.use('/api/purchase-invoices', require('./routes/purchaseInvoice.routes'));
 
 app.use(notFound);
 app.use(errorHandler);

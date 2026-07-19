@@ -43,6 +43,10 @@ TreasuryTransaction.init(
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    purchase_invoice_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     created_by: {
       type: DataTypes.INTEGER,
       allowNull: false,

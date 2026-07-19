@@ -9,6 +9,9 @@ const STATUS_MAP = {
   partial: { label: 'پرداخت جزئی', color: 'status-shipping' },
   paid: { label: 'پرداخت‌شده', color: 'status-delivered' },
   quote: { label: 'پیش‌فاکتور', color: 'status-quote' },
+  draft: { label: 'پیش‌نویس', color: 'status-pending' },
+  ordered: { label: 'سفارش داده‌شده', color: 'status-confirmed' },
+  received: { label: 'دریافت‌شده', color: 'status-delivered' },
 };
 
 const COLOR_STYLES = {

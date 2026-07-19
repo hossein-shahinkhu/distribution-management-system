@@ -12,6 +12,9 @@ import Reports from './pages/Reports';
 import Users from './pages/Users';
 import RoutesPage from './pages/Routes';
 import Treasury from './pages/Treasury';
+import Suppliers from './pages/Suppliers';
+import PurchaseOrders from './pages/PurchaseOrders';
+import PurchaseInvoices from './pages/PurchaseInvoices';
 
 export default function App() {
   return (
@@ -82,6 +85,30 @@ export default function App() {
         element={
           <ProtectedRoute roles={['admin', 'salesperson']}>
             <Treasury />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/suppliers"
+        element={
+          <ProtectedRoute roles={['admin', 'warehouse_keeper']}>
+            <Suppliers />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/purchase-orders"
+        element={
+          <ProtectedRoute roles={['admin', 'warehouse_keeper']}>
+            <PurchaseOrders />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/purchase-invoices"
+        element={
+          <ProtectedRoute roles={['admin', 'warehouse_keeper']}>
+            <PurchaseInvoices />
           </ProtectedRoute>
         }
       />

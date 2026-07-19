@@ -1,11 +1,12 @@
 const { Op } = require('sequelize');
-const { TreasuryTransaction, Customer, Invoice, User } = require('../models');
+const { TreasuryTransaction, Customer, Invoice, PurchaseInvoice, User } = require('../models');
 const { parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
-const { syncInvoicePaymentStatus } = require('../utils/invoicePaymentSync');
+const { syncInvoicePaymentStatus, syncPurchaseInvoicePaymentStatus } = require('../utils/invoicePaymentSync');
 
 const INCLUDE = [
   Customer,
   Invoice,
+  PurchaseInvoice,
   { model: User, as: 'creator', attributes: ['id', 'full_name'] },
 ];
 
@@ -13,7 +14,17 @@ const INCLUDE = [
 // شده باشد، وضعیت پرداخت آن فاکتور بلافاصله بازمحاسبه می‌شود.
 async function create(req, res) {
   try {
-    const { type, amount, method, reference_number, transaction_date, description, customer_id, invoice_id } = req.body;
+    const {
+      type,
+      amount,
+      method,
+      reference_number,
+      transaction_date,
+      description,
+      customer_id,
+      invoice_id,
+      purchase_invoice_id,
+    } = req.body;
 
     if (customer_id) {
       const customer = await Customer.findByPk(customer_id);
@@ -22,6 +33,10 @@ async function create(req, res) {
     if (invoice_id) {
       const invoice = await Invoice.findByPk(invoice_id);
       if (!invoice) return res.status(404).json({ message: 'فاکتور یافت نشد.' });
+    }
+    if (purchase_invoice_id) {
+      const purchaseInvoice = await PurchaseInvoice.findByPk(purchase_invoice_id);
+      if (!purchaseInvoice) return res.status(404).json({ message: 'فاکتور خرید یافت نشد.' });
     }
 
     const record = await TreasuryTransaction.create({
@@ -33,11 +48,15 @@ async function create(req, res) {
       description: description || null,
       customer_id: customer_id || null,
       invoice_id: invoice_id || null,
+      purchase_invoice_id: purchase_invoice_id || null,
       created_by: req.user.id,
     });
 
     if (type === 'receipt' && invoice_id) {
       await syncInvoicePaymentStatus(invoice_id);
+    }
+    if (type === 'payment' && purchase_invoice_id) {
+      await syncPurchaseInvoicePaymentStatus(purchase_invoice_id);
     }
 
     const full = await TreasuryTransaction.findByPk(record.id, { include: INCLUDE });
@@ -49,13 +68,14 @@ async function create(req, res) {
 
 async function getAll(req, res) {
   try {
-    const { type, customer_id, invoice_id, from, to } = req.query;
+    const { type, customer_id, invoice_id, purchase_invoice_id, from, to } = req.query;
     const { page, limit, offset } = parsePagination(req.query);
 
     const where = {};
     if (type) where.type = type;
     if (customer_id) where.customer_id = customer_id;
     if (invoice_id) where.invoice_id = invoice_id;
+    if (purchase_invoice_id) where.purchase_invoice_id = purchase_invoice_id;
     if (from || to) {
       where.transaction_date = {};
       if (from) where.transaction_date[Op.gte] = new Date(from);
@@ -91,6 +111,9 @@ async function voidTransaction(req, res) {
 
     if (record.type === 'receipt' && record.invoice_id) {
       await syncInvoicePaymentStatus(record.invoice_id);
+    }
+    if (record.type === 'payment' && record.purchase_invoice_id) {
+      await syncPurchaseInvoicePaymentStatus(record.purchase_invoice_id);
     }
 
     const full = await TreasuryTransaction.findByPk(record.id, { include: INCLUDE });

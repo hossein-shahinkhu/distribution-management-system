@@ -11,6 +11,10 @@ const OrderItem = require('./orderItem.model');
 const Invoice = require('./invoice.model');
 const Route = require('./route.model');
 const TreasuryTransaction = require('./treasuryTransaction.model');
+const Supplier = require('./supplier.model');
+const PurchaseOrder = require('./purchaseOrder.model');
+const PurchaseOrderItem = require('./purchaseOrderItem.model');
+const PurchaseInvoice = require('./purchaseInvoice.model');
 
 // ---------- روابط ----------
 
@@ -66,6 +70,31 @@ TreasuryTransaction.belongsTo(Invoice, { foreignKey: 'invoice_id' });
 User.hasMany(TreasuryTransaction, { foreignKey: 'created_by', as: 'treasuryTransactions' });
 TreasuryTransaction.belongsTo(User, { foreignKey: 'created_by', as: 'creator' });
 
+// Supplier <-> PurchaseOrder (یک تامین‌کننده، چند سفارش خرید)
+Supplier.hasMany(PurchaseOrder, { foreignKey: 'supplier_id' });
+PurchaseOrder.belongsTo(Supplier, { foreignKey: 'supplier_id' });
+
+// PurchaseOrder <-> PurchaseOrderItem (یک سفارش خرید، چند قلم)
+PurchaseOrder.hasMany(PurchaseOrderItem, { foreignKey: 'purchase_order_id', as: 'items', onDelete: 'CASCADE' });
+PurchaseOrderItem.belongsTo(PurchaseOrder, { foreignKey: 'purchase_order_id' });
+
+// Product <-> PurchaseOrderItem
+Product.hasMany(PurchaseOrderItem, { foreignKey: 'product_id' });
+PurchaseOrderItem.belongsTo(Product, { foreignKey: 'product_id' });
+
+// Supplier <-> PurchaseInvoice (یک تامین‌کننده، چند فاکتور خرید)
+Supplier.hasMany(PurchaseInvoice, { foreignKey: 'supplier_id' });
+PurchaseInvoice.belongsTo(Supplier, { foreignKey: 'supplier_id' });
+
+// PurchaseOrder <-> PurchaseInvoice (یک سفارش خرید می‌تواند چند فاکتور خرید داشته باشد؛
+// یکتا نیست چون خرید می‌تواند بدون سفارش خرید قبلی هم مستقیم ثبت شود)
+PurchaseOrder.hasMany(PurchaseInvoice, { foreignKey: 'purchase_order_id' });
+PurchaseInvoice.belongsTo(PurchaseOrder, { foreignKey: 'purchase_order_id' });
+
+// PurchaseInvoice <-> TreasuryTransaction (پرداخت‌های مرتبط با یک فاکتور خرید خاص)
+PurchaseInvoice.hasMany(TreasuryTransaction, { foreignKey: 'purchase_invoice_id' });
+TreasuryTransaction.belongsTo(PurchaseInvoice, { foreignKey: 'purchase_invoice_id' });
+
 module.exports = {
   sequelize,
   Role,
@@ -79,4 +108,8 @@ module.exports = {
   Invoice,
   Route,
   TreasuryTransaction,
+  Supplier,
+  PurchaseOrder,
+  PurchaseOrderItem,
+  PurchaseInvoice,
 };

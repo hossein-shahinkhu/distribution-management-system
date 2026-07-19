@@ -11,6 +11,7 @@ const createTreasuryTransactionRules = [
   body('description').optional({ nullable: true }).isString(),
   body('customer_id').optional({ nullable: true }).isInt({ min: 1 }).withMessage('مشتری انتخاب‌شده معتبر نیست.'),
   body('invoice_id').optional({ nullable: true }).isInt({ min: 1 }).withMessage('فاکتور انتخاب‌شده معتبر نیست.'),
+  body('purchase_invoice_id').optional({ nullable: true }).isInt({ min: 1 }).withMessage('فاکتور خرید انتخاب‌شده معتبر نیست.'),
 ];
 
 module.exports = { createTreasuryTransactionRules };
