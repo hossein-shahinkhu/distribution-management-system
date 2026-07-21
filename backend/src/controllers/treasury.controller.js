@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const { TreasuryTransaction, Customer, Invoice, PurchaseInvoice, User } = require('../models');
 const { parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
 const { syncInvoicePaymentStatus, syncPurchaseInvoicePaymentStatus } = require('../utils/invoicePaymentSync');
+const logger = require('../utils/logger');
 
 const INCLUDE = [
   Customer,
@@ -10,20 +11,16 @@ const INCLUDE = [
   { model: User, as: 'creator', attributes: ['id', 'full_name'] },
 ];
 
+// فیلدهای مجاز برای ثبت تراکنش (allowlist)
+const ALLOWED_FIELDS = ['type', 'amount', 'method', 'reference_number', 'transaction_date', 'description', 'customer_id', 'invoice_id', 'purchase_invoice_id'];
+
 // ثبت تراکنش دریافت/پرداخت جدید. اگر از نوع دریافت باشد و به یک فاکتور متصل
 // شده باشد، وضعیت پرداخت آن فاکتور بلافاصله بازمحاسبه می‌شود.
 async function create(req, res) {
   try {
     const {
-      type,
-      amount,
-      method,
-      reference_number,
-      transaction_date,
-      description,
-      customer_id,
-      invoice_id,
-      purchase_invoice_id,
+      type, amount, method, reference_number, transaction_date,
+      description, customer_id, invoice_id, purchase_invoice_id,
     } = req.body;
 
     if (customer_id) {
@@ -43,13 +40,13 @@ async function create(req, res) {
       type,
       amount,
       method,
-      reference_number: reference_number || null,
-      transaction_date: transaction_date || new Date(),
-      description: description || null,
-      customer_id: customer_id || null,
-      invoice_id: invoice_id || null,
+      reference_number:    reference_number    || null,
+      transaction_date:    transaction_date    || new Date(),
+      description:         description         || null,
+      customer_id:         customer_id         || null,
+      invoice_id:          invoice_id          || null,
       purchase_invoice_id: purchase_invoice_id || null,
-      created_by: req.user.id,
+      created_by:          req.user.id,
     });
 
     if (type === 'receipt' && invoice_id) {
@@ -62,7 +59,8 @@ async function create(req, res) {
     const full = await TreasuryTransaction.findByPk(record.id, { include: INCLUDE });
     return res.status(201).json(full);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('treasury.create error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -72,14 +70,14 @@ async function getAll(req, res) {
     const { page, limit, offset } = parsePagination(req.query);
 
     const where = {};
-    if (type) where.type = type;
-    if (customer_id) where.customer_id = customer_id;
-    if (invoice_id) where.invoice_id = invoice_id;
+    if (type)                where.type                = type;
+    if (customer_id)         where.customer_id         = customer_id;
+    if (invoice_id)          where.invoice_id          = invoice_id;
     if (purchase_invoice_id) where.purchase_invoice_id = purchase_invoice_id;
     if (from || to) {
       where.transaction_date = {};
       if (from) where.transaction_date[Op.gte] = new Date(from);
-      if (to) where.transaction_date[Op.lte] = new Date(to);
+      if (to)   where.transaction_date[Op.lte] = new Date(to);
     }
 
     const result = await TreasuryTransaction.findAndCountAll({
@@ -93,7 +91,8 @@ async function getAll(req, res) {
 
     return res.json(buildPaginatedResponse(result, page, limit));
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('treasury.getAll error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -119,7 +118,8 @@ async function voidTransaction(req, res) {
     const full = await TreasuryTransaction.findByPk(record.id, { include: INCLUDE });
     return res.json(full);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('treasury.voidTransaction error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 

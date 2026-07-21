@@ -19,8 +19,20 @@ if (process.env.NODE_ENV !== 'test') {
   app.use('/api', apiLimiter);
 }
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'سرور سیستم مدیریت پخش کالا فعال است.' });
+// Q-11: Full health check — verifies DB connectivity, not just process uptime
+app.get('/api/health', async (req, res) => {
+  try {
+    const { sequelize } = require('./models');
+    await sequelize.authenticate();
+    res.json({
+      status:  'ok',
+      db:      'connected',
+      uptime:  Math.floor(process.uptime()),
+      version: process.env.npm_package_version || '1.0.0',
+    });
+  } catch (err) {
+    res.status(503).json({ status: 'error', db: 'disconnected' });
+  }
 });
 
 app.use('/api/auth', require('./routes/auth.routes'));

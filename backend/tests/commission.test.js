@@ -3,8 +3,7 @@ process.env.JWT_SECRET = 'test_secret';
 const request = require('supertest');
 const app = require('../src/app');
 const { sequelize, Distributor, Customer, Order } = require('../src/models');
-const { seedRoles, createUser } = require('./testUtils');
-const { generateToken } = require('../src/utils/token');
+const { seedRoles, createUser, tokenFor } = require('./testUtils');
 
 let adminToken;
 let salesperson;
@@ -14,7 +13,7 @@ beforeAll(async () => {
   await sequelize.sync({ force: true });
   await seedRoles();
   const admin = await createUser({ roleName: 'admin', email: 'admin-commission-test@example.test' });
-  adminToken = generateToken(admin);
+  adminToken = tokenFor(admin);
 
   salesperson = await createUser({ roleName: 'salesperson', email: 'salesperson-commission-test@example.test' });
   await salesperson.update({ commission_rate: 10 });
@@ -88,7 +87,7 @@ describe('گزارش پورسانت', () => {
   });
 
   test('دسترسی کاربر غیر ادمین به گزارش پورسانت رد می‌شود', async () => {
-    const spToken = generateToken(salesperson);
+    const spToken = tokenFor(salesperson);
     const res = await request(app)
       .get('/api/reports/commissions')
       .set('Authorization', `Bearer ${spToken}`);

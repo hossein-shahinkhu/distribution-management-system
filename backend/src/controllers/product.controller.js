@@ -1,6 +1,10 @@
 const { Product, Category } = require('../models');
 const { Op, col } = require('sequelize');
 const { caseInsensitiveLike, parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
+const logger = require('../utils/logger');
+
+// فیلدهای مجاز برای ایجاد و ویرایش کالا (allowlist)
+const ALLOWED_FIELDS = ['sku', 'name', 'category_id', 'unit_price', 'unit', 'stock_quantity', 'reorder_level', 'is_active'];
 
 async function getAll(req, res) {
   try {
@@ -11,7 +15,7 @@ async function getAll(req, res) {
     if (search) {
       where[Op.or] = [
         { name: { [caseInsensitiveLike()]: `%${search}%` } },
-        { sku: { [caseInsensitiveLike()]: `%${search}%` } },
+        { sku:  { [caseInsensitiveLike()]: `%${search}%` } },
       ];
     }
 
@@ -25,7 +29,8 @@ async function getAll(req, res) {
 
     return res.json(buildPaginatedResponse(result, page, limit));
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('product.getAll error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -35,7 +40,8 @@ async function getOne(req, res) {
     if (!product) return res.status(404).json({ message: 'کالا یافت نشد.' });
     return res.json(product);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('product.getOne error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -59,7 +65,8 @@ async function create(req, res) {
     if (err.name === 'SequelizeUniqueConstraintError') {
       return res.status(409).json({ message: 'کد کالا (SKU) تکراری است.' });
     }
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('product.create error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -67,10 +74,21 @@ async function update(req, res) {
   try {
     const product = await Product.findByPk(req.params.id);
     if (!product) return res.status(404).json({ message: 'کالا یافت نشد.' });
-    await product.update(req.body);
+
+    // Allowlist — فقط فیلدهای مجاز به‌روز می‌شوند
+    const updates = {};
+    for (const field of ALLOWED_FIELDS) {
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
+    }
+
+    await product.update(updates);
     return res.json(product);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ message: 'کد کالا (SKU) تکراری است.' });
+    }
+    logger.error('product.update error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -81,7 +99,8 @@ async function remove(req, res) {
     await product.update({ is_active: false }); // حذف نرم (soft delete)
     return res.json({ message: 'کالا غیرفعال شد.' });
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('product.remove error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -93,7 +112,8 @@ async function lowStock(req, res) {
     });
     return res.json(products);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('product.lowStock error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 

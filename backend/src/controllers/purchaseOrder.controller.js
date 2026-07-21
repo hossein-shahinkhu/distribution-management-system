@@ -1,11 +1,7 @@
 const { sequelize, PurchaseOrder, PurchaseOrderItem, Product, Supplier } = require('../models');
+const { generateOrderNumber } = require('../utils/numberGenerator');
 const { caseInsensitiveLike, parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
-
-function generatePoNumber() {
-  const now = new Date();
-  const stamp = now.getTime().toString().slice(-8);
-  return `PO-${stamp}`;
-}
+const logger = require('../utils/logger');
 
 // ثبت سفارش خرید جدید همراه با اقلام آن (بدون تغییر موجودی انبار؛ موجودی فقط
 // هنگام تغییر وضعیت به 'received' افزایش می‌یابد)
@@ -35,27 +31,27 @@ async function create(req, res) {
         return res.status(404).json({ message: `کالا با شناسه ${item.product_id} یافت نشد.` });
       }
 
-      const unitCost = Number(item.unit_cost);
+      const unitCost  = Number(item.unit_cost);
       const lineTotal = unitCost * Number(item.quantity);
-      totalAmount += lineTotal;
+      totalAmount    += lineTotal;
 
       preparedItems.push({
         product_id: product.id,
-        quantity: item.quantity,
-        unit_cost: unitCost,
+        quantity:   item.quantity,
+        unit_cost:  unitCost,
         line_total: lineTotal,
       });
     }
 
     const purchaseOrder = await PurchaseOrder.create(
       {
-        po_number: generatePoNumber(),
+        po_number:     generateOrderNumber('PO'),
         supplier_id,
-        total_amount: totalAmount,
-        order_date: order_date || new Date(),
+        total_amount:  totalAmount,
+        order_date:    order_date    || new Date(),
         expected_date: expected_date || null,
         notes,
-        status: 'draft',
+        status:        'draft',
       },
       { transaction: t }
     );
@@ -73,7 +69,8 @@ async function create(req, res) {
     return res.status(201).json(full);
   } catch (err) {
     await t.rollback();
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('purchaseOrder.create error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -83,7 +80,7 @@ async function getAll(req, res) {
     const { page, limit, offset } = parsePagination(req.query);
 
     const where = {};
-    if (status) where.status = status;
+    if (status)      where.status      = status;
     if (supplier_id) where.supplier_id = supplier_id;
     if (search) {
       where.po_number = { [caseInsensitiveLike()]: `%${search}%` };
@@ -100,7 +97,8 @@ async function getAll(req, res) {
 
     return res.json(buildPaginatedResponse(result, page, limit));
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('purchaseOrder.getAll error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -112,7 +110,8 @@ async function getOne(req, res) {
     if (!purchaseOrder) return res.status(404).json({ message: 'سفارش خرید یافت نشد.' });
     return res.json(purchaseOrder);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('purchaseOrder.getOne error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -160,7 +159,8 @@ async function updateStatus(req, res) {
     return res.json(full);
   } catch (err) {
     await t.rollback();
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('purchaseOrder.updateStatus error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 

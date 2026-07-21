@@ -1,11 +1,13 @@
 const { Category } = require('../models');
+const logger = require('../utils/logger');
 
 async function getAll(req, res) {
   try {
     const categories = await Category.findAll({ order: [['name', 'ASC']] });
     return res.json(categories);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('category.getAll error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -19,7 +21,8 @@ async function create(req, res) {
     if (err.name === 'SequelizeUniqueConstraintError') {
       return res.status(409).json({ message: 'این دسته‌بندی قبلاً ثبت شده است.' });
     }
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('category.create error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -30,7 +33,8 @@ async function remove(req, res) {
     await category.destroy();
     return res.json({ message: 'دسته‌بندی حذف شد.' });
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('category.remove error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 

@@ -3,8 +3,7 @@ process.env.JWT_SECRET = 'test_secret';
 const request = require('supertest');
 const app = require('../src/app');
 const { sequelize, Supplier } = require('../src/models');
-const { seedRoles, createUser } = require('./testUtils');
-const { generateToken } = require('../src/utils/token');
+const { seedRoles, createUser, tokenFor } = require('./testUtils');
 
 let adminToken;
 let warehouseToken;
@@ -15,11 +14,11 @@ beforeAll(async () => {
   await sequelize.sync({ force: true });
   await seedRoles();
   const admin = await createUser({ roleName: 'admin', email: 'admin-pinv-test@example.test' });
-  adminToken = generateToken(admin);
+  adminToken = tokenFor(admin);
   const warehouseKeeper = await createUser({ roleName: 'warehouse_keeper', email: 'warehouse-pinv-test@example.test' });
-  warehouseToken = generateToken(warehouseKeeper);
+  warehouseToken = tokenFor(warehouseKeeper);
   const salesperson = await createUser({ roleName: 'salesperson', email: 'salesperson-pinv-test@example.test' });
-  salespersonToken = generateToken(salesperson);
+  salespersonToken = tokenFor(salesperson);
 
   supplier = await Supplier.create({ name: 'تامین‌کننده فاکتور خرید', phone: '09121110000' });
 });

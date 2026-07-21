@@ -1,12 +1,8 @@
 const { Invoice, Order, OrderItem, Product, Customer } = require('../models');
+const { generateInvoiceNumber } = require('../utils/numberGenerator');
+const logger = require('../utils/logger');
 
 const TAX_RATE = 0.09; // مالیات بر ارزش افزوده (قابل تنظیم)
-
-function generateInvoiceNumber() {
-  const now = new Date();
-  const stamp = now.getTime().toString().slice(-8);
-  return `INV-${stamp}`;
-}
 
 // صدور فاکتور بر اساس یک سفارش موجود
 async function createFromOrder(req, res) {
@@ -20,22 +16,23 @@ async function createFromOrder(req, res) {
       return res.status(409).json({ message: 'برای این سفارش قبلاً فاکتور صادر شده است.' });
     }
 
-    const subtotal = Number(order.total_amount);
-    const taxAmount = Math.round(subtotal * TAX_RATE);
+    const subtotal    = Number(order.total_amount);
+    const taxAmount   = Math.round(subtotal * TAX_RATE);
     const totalAmount = subtotal + taxAmount;
 
     const invoice = await Invoice.create({
       invoice_number: generateInvoiceNumber(),
       order_id,
       subtotal,
-      tax_amount: taxAmount,
+      tax_amount:   taxAmount,
       total_amount: totalAmount,
       due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // ۱۴ روز مهلت پرداخت
     });
 
     return res.status(201).json(invoice);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('invoice.createFromOrder error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -47,7 +44,8 @@ async function getAll(req, res) {
     });
     return res.json(invoices);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('invoice.getAll error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -59,7 +57,8 @@ async function getOne(req, res) {
     if (!invoice) return res.status(404).json({ message: 'فاکتور یافت نشد.' });
     return res.json(invoice);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('invoice.getOne error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -74,7 +73,8 @@ async function updatePaymentStatus(req, res) {
     await invoice.update({ payment_status });
     return res.json(invoice);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('invoice.updatePaymentStatus error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 

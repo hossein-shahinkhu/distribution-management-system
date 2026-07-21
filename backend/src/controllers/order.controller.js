@@ -1,11 +1,7 @@
 const { sequelize, Order, OrderItem, Product, Customer, Distributor, User } = require('../models');
+const { generateOrderNumber } = require('../utils/numberGenerator');
 const { caseInsensitiveLike, parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
-
-function generateOrderNumber() {
-  const now = new Date();
-  const stamp = now.getTime().toString().slice(-8);
-  return `ORD-${stamp}`;
-}
+const logger = require('../utils/logger');
 
 // ثبت سفارش جدید همراه با اقلام آن و کسر موجودی انبار (به‌صورت تراکنشی)
 // اگر is_quote=true ارسال شود، سفارش به‌عنوان پیش‌فاکتور ثبت می‌شود و موجودی
@@ -46,7 +42,7 @@ async function create(req, res) {
 
       preparedItems.push({
         product_id: product.id,
-        quantity: item.quantity,
+        quantity:   item.quantity,
         unit_price: product.unit_price,
         line_total: lineTotal,
       });
@@ -59,14 +55,14 @@ async function create(req, res) {
 
     const order = await Order.create(
       {
-        order_number: generateOrderNumber(),
+        order_number:   generateOrderNumber('ORD'),
         customer_id,
         salesperson_id: salesperson_id || null,
         distributor_id: distributor_id || null,
-        total_amount: totalAmount,
+        total_amount:   totalAmount,
         notes,
-        is_quote: isQuote,
-        status: isQuote ? 'quote' : 'pending',
+        is_quote:       isQuote,
+        status:         isQuote ? 'quote' : 'pending',
       },
       { transaction: t }
     );
@@ -84,7 +80,8 @@ async function create(req, res) {
     return res.status(201).json(fullOrder);
   } catch (err) {
     await t.rollback();
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('order.create error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -127,7 +124,8 @@ async function convertToOrder(req, res) {
     return res.json(fullOrder);
   } catch (err) {
     await t.rollback();
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('order.convertToOrder error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -145,10 +143,9 @@ async function getAll(req, res) {
     // توزیع‌کننده فقط سفارش‌های تخصیص‌یافته به خودش را می‌بیند
     if (req.user.Role?.name === 'distributor') {
       const distributor = await Distributor.findOne({ where: { user_id: req.user.id } });
-      where.distributor_id = distributor ? distributor.id : -1; // -1 یعنی هیچ نتیجه‌ای
+      where.distributor_id = distributor ? distributor.id : -1;
     }
 
-    // فیلتر بر اساس مسیر مشتری (برای اینکه توزیع‌کننده بتواند سفارش‌های یک مسیر را ببیند)
     const customerInclude = { model: Customer };
     if (route_id) {
       customerInclude.where = { route_id };
@@ -165,7 +162,8 @@ async function getAll(req, res) {
 
     return res.json(buildPaginatedResponse(result, page, limit));
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('order.getAll error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -177,7 +175,8 @@ async function getOne(req, res) {
     if (!order) return res.status(404).json({ message: 'سفارش یافت نشد.' });
     return res.json(order);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('order.getOne error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -199,13 +198,17 @@ async function updateStatus(req, res) {
 
     return res.json(order);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('order.updateStatus error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
 async function assignDistributor(req, res) {
   try {
     const { distributor_id } = req.body;
+    if (!distributor_id) {
+      return res.status(400).json({ message: 'شناسه توزیع‌کننده الزامی است.' });
+    }
     const order = await Order.findByPk(req.params.id);
     if (!order) return res.status(404).json({ message: 'سفارش یافت نشد.' });
 
@@ -215,7 +218,8 @@ async function assignDistributor(req, res) {
     await order.update({ distributor_id, status: 'out_for_delivery' });
     return res.json(order);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('order.assignDistributor error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 

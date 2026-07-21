@@ -1,5 +1,6 @@
 const { User, Role } = require('../models');
 const { generateToken } = require('../utils/token');
+const logger = require('../utils/logger');
 
 // ثبت‌نام کاربر جدید (معمولاً فقط توسط ادمین انجام می‌شود)
 async function register(req, res) {
@@ -28,14 +29,15 @@ async function register(req, res) {
       role_id: role.id,
     });
 
-    const token = generateToken(user);
+    const token = generateToken(user, role.name);
     return res.status(201).json({
       message: 'ثبت‌نام با موفقیت انجام شد.',
       token,
       user: { id: user.id, full_name: user.full_name, email: user.email, role: role.name },
     });
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('register error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -57,7 +59,7 @@ async function login(req, res) {
       return res.status(401).json({ message: 'ایمیل یا رمز عبور اشتباه است.' });
     }
 
-    const token = generateToken(user);
+    const token = generateToken(user, user.Role.name);
     return res.json({
       message: 'ورود موفقیت‌آمیز بود.',
       token,
@@ -69,7 +71,8 @@ async function login(req, res) {
       },
     });
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('login error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -88,7 +91,8 @@ async function listUsers(req, res) {
     const users = await User.findAll({ include: Role, attributes: { exclude: ['password_hash'] } });
     return res.json(users);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('listUsers error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -107,7 +111,8 @@ async function changePassword(req, res) {
 
     return res.json({ message: 'رمز عبور با موفقیت تغییر کرد.' });
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('changePassword error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -117,11 +122,12 @@ async function updateUser(req, res) {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: 'کاربر یافت نشد.' });
 
+    // Allowlist — فقط فیلدهای مجاز به‌روز می‌شوند
     const updates = {};
-    if (full_name !== undefined) updates.full_name = full_name;
-    if (phone !== undefined) updates.phone = phone;
-    if (is_active !== undefined) updates.is_active = is_active;
-    if (commission_rate !== undefined) updates.commission_rate = commission_rate;
+    if (full_name      !== undefined) updates.full_name       = full_name;
+    if (phone          !== undefined) updates.phone            = phone;
+    if (is_active      !== undefined) updates.is_active        = is_active;
+    if (commission_rate!== undefined) updates.commission_rate  = commission_rate;
 
     if (role_name !== undefined) {
       const role = await Role.findOne({ where: { name: role_name } });
@@ -133,7 +139,8 @@ async function updateUser(req, res) {
     const updated = await User.findByPk(user.id, { include: Role, attributes: { exclude: ['password_hash'] } });
     return res.json(updated);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('updateUser error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 

@@ -3,8 +3,7 @@ process.env.JWT_SECRET = 'test_secret';
 const request = require('supertest');
 const app = require('../src/app');
 const { sequelize } = require('../src/models');
-const { seedRoles, createUser } = require('./testUtils');
-const { generateToken } = require('../src/utils/token');
+const { seedRoles, createUser, tokenFor } = require('./testUtils');
 
 let adminToken;
 let salespersonToken;
@@ -13,9 +12,9 @@ beforeAll(async () => {
   await sequelize.sync({ force: true });
   await seedRoles();
   const admin = await createUser({ roleName: 'admin', email: 'admin-supplier-test@example.test' });
-  adminToken = generateToken(admin);
+  adminToken = tokenFor(admin);
   const salesperson = await createUser({ roleName: 'salesperson', email: 'salesperson-supplier-test@example.test' });
-  salespersonToken = generateToken(salesperson);
+  salespersonToken = tokenFor(salesperson);
 });
 
 afterAll(async () => {

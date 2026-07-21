@@ -1,4 +1,8 @@
 const { Distributor, User } = require('../models');
+const logger = require('../utils/logger');
+
+// فیلدهای مجاز برای ایجاد و ویرایش توزیع‌کننده (allowlist)
+const ALLOWED_FIELDS = ['full_name', 'phone', 'vehicle_plate', 'vehicle_type', 'user_id', 'commission_rate'];
 
 async function getAll(req, res) {
   try {
@@ -8,7 +12,8 @@ async function getAll(req, res) {
     });
     return res.json(distributors);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('distributor.getAll error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -36,7 +41,8 @@ async function create(req, res) {
     });
     return res.status(201).json(distributor);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('distributor.create error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -52,10 +58,18 @@ async function update(req, res) {
       }
     }
 
-    await distributor.update(req.body);
+    // Allowlist — فقط فیلدهای مجاز به‌روز می‌شوند
+    const updates = {};
+    for (const field of ALLOWED_FIELDS) {
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
+    }
+    if (updates.user_id === '' || updates.user_id === 0) updates.user_id = null;
+
+    await distributor.update(updates);
     return res.json(distributor);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('distributor.update error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -66,7 +80,8 @@ async function remove(req, res) {
     await distributor.update({ is_active: false });
     return res.json({ message: 'توزیع‌کننده غیرفعال شد.' });
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('distributor.remove error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 

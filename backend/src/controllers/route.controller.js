@@ -1,11 +1,16 @@
 const { Route } = require('../models');
+const logger = require('../utils/logger');
+
+// فیلدهای مجاز برای ایجاد و ویرایش مسیر (allowlist)
+const ALLOWED_FIELDS = ['name', 'description'];
 
 async function getAll(req, res) {
   try {
     const routes = await Route.findAll({ order: [['name', 'ASC']] });
     return res.json(routes);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('route.getAll error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -15,7 +20,8 @@ async function getOne(req, res) {
     if (!route) return res.status(404).json({ message: 'مسیر یافت نشد.' });
     return res.json(route);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('route.getOne error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -29,7 +35,8 @@ async function create(req, res) {
     if (err.name === 'SequelizeUniqueConstraintError') {
       return res.status(409).json({ message: 'این مسیر قبلاً ثبت شده است.' });
     }
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('route.create error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -37,13 +44,21 @@ async function update(req, res) {
   try {
     const route = await Route.findByPk(req.params.id);
     if (!route) return res.status(404).json({ message: 'مسیر یافت نشد.' });
-    await route.update(req.body);
+
+    // Allowlist
+    const updates = {};
+    for (const field of ALLOWED_FIELDS) {
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
+    }
+
+    await route.update(updates);
     return res.json(route);
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {
       return res.status(409).json({ message: 'این مسیر قبلاً ثبت شده است.' });
     }
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('route.update error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
@@ -54,7 +69,8 @@ async function remove(req, res) {
     await route.destroy();
     return res.json({ message: 'مسیر حذف شد.' });
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('route.remove error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
