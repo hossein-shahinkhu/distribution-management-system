@@ -1,6 +1,9 @@
 const { Category } = require('../models');
 const logger = require('../utils/logger');
 
+// فیلدهای مجاز برای ایجاد دسته‌بندی (allowlist)
+const ALLOWED_FIELDS = ['name', 'description'];
+
 async function getAll(req, res) {
   try {
     const categories = await Category.findAll({ order: [['name', 'ASC']] });
@@ -13,9 +16,11 @@ async function getAll(req, res) {
 
 async function create(req, res) {
   try {
-    const { name, description } = req.body;
-    if (!name) return res.status(400).json({ message: 'نام دسته‌بندی الزامی است.' });
-    const category = await Category.create({ name, description });
+    const data = {};
+    for (const field of ALLOWED_FIELDS) {
+      if (req.body[field] !== undefined) data[field] = req.body[field];
+    }
+    const category = await Category.create(data);
     return res.status(201).json(category);
   } catch (err) {
     if (err.name === 'SequelizeUniqueConstraintError') {

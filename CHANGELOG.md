@@ -6,6 +6,17 @@ All notable changes documented from repository evidence are listed here. Dates u
 
 ### Added
 
+- **Backend refactor (service extraction)** — Transactional domain logic for sales orders and purchase orders extracted into Express-independent service modules:
+  - `backend/src/services/orderService.js` — `createOrder`, `convertToOrder`, `updateOrderStatus`: no `req`/`res` dependency; thrown errors carry `statusCode` for controller forwarding.
+  - `backend/src/services/purchaseOrderService.js` — `createPurchaseOrder`, `updatePurchaseOrderStatus`: same pattern.
+  - `order.controller.js` and `purchaseOrder.controller.js` reduced to thin HTTP shells that call the service and map results/errors to responses.
+  - All business invariants (state machine, inventory lock, stock compensation, server-side totals) remain in the service layer. Controllers no longer contain `sequelize.transaction()` directly.
+- **Remaining validation coverage** — All previously unprotected write endpoints now have express-validator rules:
+  - `POST /api/categories` — `createCategoryRules`; `category.controller` uses an explicit `ALLOWED_FIELDS` allowlist.
+  - `PUT /api/suppliers/:id` — `updateSupplierRules`.
+  - `PATCH /api/purchase-orders/:id/status` — `updatePurchaseOrderStatusRules`.
+  - New validator files: `category.validators.js`.
+
 - **TASK-08: Validation hardening** — Added express-validator rules to every previously unprotected write endpoint:
   - `PUT /api/customers/:id` — `updateCustomerRules` (optional fields, same constraints as POST)
   - `POST /api/routes` and `PUT /api/routes/:id` — `createRouteRules` / `updateRouteRules` (non-empty name)

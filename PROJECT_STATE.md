@@ -76,7 +76,7 @@ These are documented product directions and are not present in the current sourc
 
 ### Medium priority
 
-- Write validation is incomplete for category creation/deletion operations.
+- No remaining validation gaps on write endpoints (category creation was the last one; now covered).
 - Invoice tax is hard-coded at 9% and monetary/business configuration is not centralized.
 - Several list endpoints are unpaginated (`categories`, `distributors`, `invoices`, `routes`, `users`, and reports).
 - Controllers contain most business logic; service boundaries are only present for payment synchronization and small helpers.
