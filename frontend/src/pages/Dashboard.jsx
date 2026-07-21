@@ -5,6 +5,7 @@ import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 import { ordersApi } from '../api/orders';
 import { productsApi } from '../api/products';
+import { reportsApi } from '../api/misc';
 import { useAuth } from '../context/AuthContext';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -105,38 +106,41 @@ const QUICK_ACTIONS = [
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [orders, setOrders] = useState([]);
-  const [lowStock, setLowStock] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // آمار کلی از reports API (همه سفارش‌ها، نه فقط ۱۰۰ تا)
+  const [salesStats, setSalesStats]   = useState(null);
+  // آخرین سفارش‌ها برای جدول (فقط ۱۰ تا آخر)
+  const [recentOrders, setRecentOrders] = useState([]);
+  const [lowStock, setLowStock]         = useState([]);
+  const [loading, setLoading]           = useState(true);
 
   useEffect(() => {
     Promise.all([
-      ordersApi.getAll({ limit: 100 }).then((r) => r.data.data).catch(() => []),
+      reportsApi.sales().then((r) => r.data).catch(() => null),
+      ordersApi.getAll({ limit: 10 }).then((r) => r.data.data).catch(() => []),
       user?.role === 'admin' || user?.role === 'warehouse_keeper'
         ? productsApi.lowStock().then((r) => r.data).catch(() => [])
         : Promise.resolve([]),
-    ]).then(([o, ls]) => {
-      setOrders(o);
+    ]).then(([stats, recent, ls]) => {
+      setSalesStats(stats);
+      setRecentOrders(recent);
       setLowStock(ls);
       setLoading(false);
     });
   }, [user]);
 
-  const totalRevenue   = orders.reduce((sum, o) => sum + Number(o.total_amount), 0);
-  const pendingCount   = orders.filter((o) => o.status === 'pending').length;
-  const deliveredCount = orders.filter((o) => o.status === 'delivered').length;
-  const processingCount = orders.filter((o) => o.status === 'processing').length;
+  const totalRevenue    = salesStats?.totalRevenue   ?? 0;
+  const totalOrders     = salesStats?.totalOrders    ?? 0;
+  const pendingCount    = salesStats?.byStatus?.pending ?? 0;
+  const deliveredCount  = salesStats?.byStatus?.delivered ?? 0;
+  const processingCount = salesStats?.byStatus?.processing ?? 0;
 
-  const statusCounts = orders.reduce((acc, o) => {
-    acc[o.status] = (acc[o.status] || 0) + 1;
-    return acc;
-  }, {});
-
-  const chartData = Object.entries(statusCounts).map(([status, count]) => ({
-    name: STATUS_LABELS_FA[status] || status,
-    تعداد: count,
-    status,
-  }));
+  const chartData = salesStats
+    ? Object.entries(salesStats.byStatus || {}).map(([status, count]) => ({
+        name: STATUS_LABELS_FA[status] || status,
+        تعداد: count,
+        status,
+      }))
+    : [];
 
   const visibleActions = QUICK_ACTIONS.filter((a) =>
     a.roles.includes(user?.role)
@@ -159,9 +163,9 @@ export default function Dashboard() {
         {!loading && (
           <div className="flex items-center gap-4 rounded-2xl border border-border bg-white px-5 py-3 text-center shadow-sm">
             <div>
-              <p className="text-2xs text-muted">امروز</p>
-              <p className="text-lg font-bold tabular text-ink">{orders.length}</p>
-              <p className="text-2xs text-muted">کل سفارش</p>
+              <p className="text-2xs text-muted">کل</p>
+              <p className="text-lg font-bold tabular text-ink">{totalOrders.toLocaleString('fa-IR')}</p>
+              <p className="text-2xs text-muted">سفارش</p>
             </div>
             <div className="h-8 w-px bg-border" />
             <div>
@@ -183,7 +187,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           label="کل سفارش‌ها"
-          value={loading ? '—' : orders.length.toLocaleString('fa-IR')}
+          value={loading ? '—' : totalOrders.toLocaleString('fa-IR')}
           sublabel={loading ? '' : `${processingCount} در حال پردازش`}
           accent="navy"
           icon={
@@ -274,7 +278,7 @@ export default function Dashboard() {
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-sm font-bold text-ink">توزیع وضعیت سفارش‌ها</h3>
             {!loading && chartData.length > 0 && (
-              <span className="text-xs text-muted">{orders.length} سفارش</span>
+              <span className="text-xs text-muted">{totalOrders.toLocaleString('fa-IR')} سفارش</span>
             )}
           </div>
           {loading ? (
@@ -347,14 +351,14 @@ export default function Dashboard() {
               <tbody>
                 {loading ? (
                   <SkeletonRows count={6} />
-                ) : orders.length === 0 ? (
+                ) : recentOrders.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="py-10 text-center text-sm text-muted">
                       هنوز سفارشی ثبت نشده است.
                     </td>
                   </tr>
                 ) : (
-                  orders.slice(0, 7).map((o) => (
+                  recentOrders.map((o) => (
                     <tr key={o.id}>
                       <td>
                         <Link

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
 import Input from '../components/Input';
@@ -15,15 +15,18 @@ const EMPTY_FORM = {
 };
 
 export default function Customers() {
-  const [customers, setCustomers]   = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, totalPages: 1 });
-  const [search, setSearch]         = useState('');
-  const [routes, setRoutes]         = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [modalOpen, setModalOpen]   = useState(false);
-  const [form, setForm]             = useState(EMPTY_FORM);
-  const [editingId, setEditingId]   = useState(null);
-  const [error, setError]           = useState('');
+  const [customers, setCustomers]     = useState([]);
+  const [pagination, setPagination]   = useState({ page: 1, totalPages: 1 });
+  const [search, setSearch]           = useState('');
+  const [routes, setRoutes]           = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [modalOpen, setModalOpen]     = useState(false);
+  const [form, setForm]               = useState(EMPTY_FORM);
+  const [editingId, setEditingId]     = useState(null);
+  const [error, setError]             = useState('');
+  // map of customerId → { outstanding_balance, credit_limit, available_credit, unpaid_invoices }
+  const [creditUsage, setCreditUsage] = useState({});
+  const fetchingCredit                = useRef(new Set());
 
   function load(page = 1) {
     setLoading(true);
@@ -37,6 +40,19 @@ export default function Customers() {
   useEffect(() => {
     routesApi.getAll().then((r) => setRoutes(r.data));
   }, []);
+
+  // Fetch credit usage for customers with a credit limit, after the list loads
+  useEffect(() => {
+    customers.forEach((c) => {
+      if (!Number(c.credit_limit) || fetchingCredit.current.has(c.id) || creditUsage[c.id]) return;
+      fetchingCredit.current.add(c.id);
+      customersApi.getCreditUsage(c.id)
+        .then((r) => setCreditUsage((prev) => ({ ...prev, [c.id]: r.data })))
+        .catch(() => {}) // silently ignore — bar stays decorative
+        .finally(() => fetchingCredit.current.delete(c.id));
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customers]);
 
   useEffect(() => {
     const t = setTimeout(() => load(1), 300);
@@ -153,11 +169,18 @@ export default function Customers() {
                 </tr>
               ) : (
                 customers.map((c) => {
-                  const route      = c.route_id ? routeById[c.route_id] : null;
-                  const creditLimit = Number(c.credit_limit) || 0;
-                  // We don't have outstanding balance from API, so show the limit with usage bar
-                  // The bar is purely decorative showing the credit limit magnitude
-                  // when we have credit data it would show usage vs limit
+                  const route        = c.route_id ? routeById[c.route_id] : null;
+                  const creditLimit  = Number(c.credit_limit) || 0;
+                  const usage        = creditUsage[c.id];
+                  const outstanding  = usage ? usage.outstanding_balance : null;
+                  const usagePct     = (creditLimit > 0 && outstanding !== null)
+                    ? Math.min(100, Math.round((outstanding / creditLimit) * 100))
+                    : null;
+                  // bar colour: green ≤ 60%, amber ≤ 85%, red > 85%
+                  const barColor = usagePct === null ? 'bg-navy-300'
+                    : usagePct > 85 ? 'bg-danger'
+                    : usagePct > 60 ? 'bg-warning'
+                    : 'bg-success';
                   return (
                     <tr key={c.id}>
                       {/* Name */}
@@ -189,20 +212,24 @@ export default function Customers() {
                           {!c.city && !route && <span className="text-muted">—</span>}
                         </div>
                       </td>
-                      {/* Credit limit */}
+                      {/* Credit limit + usage */}
                       <td className="hidden lg:table-cell">
                         {creditLimit > 0 ? (
                           <div className="flex flex-col gap-1">
                             <span className="tabular text-sm text-ink">
                               {new Intl.NumberFormat('fa-IR').format(creditLimit)} تومان
                             </span>
-                            {/* Visual bar — full when no usage data */}
-                            <div className="progress-bar w-20">
+                            <div className="progress-bar w-24">
                               <div
-                                className="progress-bar-fill bg-navy-300"
-                                style={{ width: '100%' }}
+                                className={`progress-bar-fill ${barColor}`}
+                                style={{ width: usagePct !== null ? `${usagePct}%` : '0%' }}
                               />
                             </div>
+                            {outstanding !== null && outstanding > 0 && (
+                              <span className="tabular text-2xs text-muted">
+                                بدهی: {new Intl.NumberFormat('fa-IR').format(Math.round(outstanding))} تومان
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <span className="text-xs text-muted">بدون محدودیت</span>

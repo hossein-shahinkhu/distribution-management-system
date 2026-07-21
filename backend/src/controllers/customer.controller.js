@@ -1,4 +1,5 @@
-const { Customer, Invoice, Op } = require('../models');
+const { Op } = require('sequelize');
+const { Customer, Invoice, Order, TreasuryTransaction } = require('../models');
 const { caseInsensitiveLike, parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
 const logger = require('../utils/logger');
 
@@ -92,31 +93,65 @@ async function remove(req, res) {
   }
 }
 
-// TASK-06: مجموع بدهی فعال مشتری (فاکتورهای پرداخت‌نشده و جزئی)
+// TASK-06: مجموع بدهی فعال مشتری
+// مانده بدهی = مجموع مبلغ فاکتورهای پرداخت‌نشده/جزئی
+//              منهای مجموع دریافت‌های غیرباطل مرتبط با آن فاکتورها
 async function getCreditUsage(req, res) {
   try {
     const customer = await Customer.findByPk(req.params.id);
     if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
 
+    // فاکتورهای پرداخت‌نشده یا جزئی برای سفارش‌های این مشتری
     const unpaidInvoices = await Invoice.findAll({
-      where: {
-        '$Order.customer_id$': customer.id,
-        payment_status: { [Op.in]: ['unpaid', 'partial'] },
-      },
-      include: [{ association: 'Order', attributes: ['customer_id'] }],
-      attributes: ['id', 'total_amount', 'payment_status'],
+      where: { payment_status: { [Op.in]: ['unpaid', 'partial'] } },
+      include: [{
+        model: Order,
+        where: { customer_id: customer.id },
+        attributes: [],
+      }],
+      attributes: ['id', 'total_amount'],
     });
 
-    const outstandingBalance = unpaidInvoices.reduce(
-      (sum, inv) => sum + Number(inv.total_amount),
-      0
-    );
+    if (unpaidInvoices.length === 0) {
+      return res.json({
+        customer_id:         customer.id,
+        credit_limit:        Number(customer.credit_limit),
+        outstanding_balance: 0,
+        available_credit:    Number(customer.credit_limit),
+        unpaid_invoices:     0,
+      });
+    }
+
+    const invoiceIds = unpaidInvoices.map((inv) => inv.id);
+
+    // جمع دریافت‌های غیرباطل مرتبط با این فاکتورها
+    const receipts = await TreasuryTransaction.findAll({
+      where: {
+        invoice_id: { [Op.in]: invoiceIds },
+        type:       'receipt',
+        is_voided:  false,
+      },
+      attributes: ['invoice_id', 'amount'],
+    });
+
+    const paidPerInvoice = {};
+    for (const r of receipts) {
+      paidPerInvoice[r.invoice_id] = (paidPerInvoice[r.invoice_id] || 0) + Number(r.amount);
+    }
+
+    // مانده واقعی هر فاکتور = مبلغ کل - دریافت‌شده
+    const outstandingBalance = unpaidInvoices.reduce((sum, inv) => {
+      const paid = paidPerInvoice[inv.id] || 0;
+      return sum + Math.max(0, Number(inv.total_amount) - paid);
+    }, 0);
+
+    const creditLimit = Number(customer.credit_limit);
 
     return res.json({
       customer_id:         customer.id,
-      credit_limit:        Number(customer.credit_limit),
+      credit_limit:        creditLimit,
       outstanding_balance: outstandingBalance,
-      available_credit:    Math.max(0, Number(customer.credit_limit) - outstandingBalance),
+      available_credit:    creditLimit > 0 ? Math.max(0, creditLimit - outstandingBalance) : null,
       unpaid_invoices:     unpaidInvoices.length,
     });
   } catch (err) {

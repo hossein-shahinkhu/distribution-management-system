@@ -119,12 +119,13 @@ All tables include integer `id` primary keys and Sequelize timestamps unless sta
 | `distributor_id` | integer FK | Optional, references `distributors.id` |
 | `status` | enum | Model values: `pending`, `confirmed`, `processing`, `out_for_delivery`, `delivered`, `cancelled`, `quote` |
 | `is_quote` | boolean | Required, defaults false |
+| `stock_compensated` | boolean | Required, defaults false; set to true after cancelled order restores stock (idempotency guard) |
 | `total_amount` | decimal(14,2) | Required, defaults 0 |
 | `order_date` | date/time | Defaults now |
 | `delivery_date` | date/time | Optional; set when status becomes delivered |
 | `notes` | text | Optional |
 
-Important schema issue: the original `create-orders` migration defines the enum without `quote`, and the later quote migration adds only `is_quote`. A new PostgreSQL migration must add the enum value.
+Migration M-10 contains the `ALTER TYPE ... ADD VALUE` statement but was missing `{ transaction: false }`, which prevented it from executing on PostgreSQL. Migration M-24 re-issues the same idempotent statement with the correct option. Both M-10 and M-24 use `IF NOT EXISTS` and are safe to run on databases that already have the value.
 
 ### `order_items`
 
@@ -188,6 +189,7 @@ Important schema issue: the original `create-orders` migration defines the enum 
 | `order_date` | date/time | Defaults now |
 | `expected_date` | date/time | Optional |
 | `notes` | text | Optional |
+| `stock_compensated` | boolean | Required, defaults false; reserved for future purchase-order reversal flows |
 
 ### `purchase_order_items`
 
@@ -221,8 +223,30 @@ Unique constraint: `(supplier_id, invoice_number)`.
 - Quote creation stores items and totals without changing stock.
 - Quote conversion locks products, checks availability, subtracts stock, and changes the order to pending.
 - Purchase order creation does not change stock.
-- The first transition of a purchase order into `received` locks products and adds quantities.
-- Current cancellation/status reversal paths do not compensate inventory.
+- The transition of a purchase order into `received` locks products and adds quantities. `received` is a terminal state; further transitions are rejected.
+- Cancelling a sales order from `pending`, `confirmed`, `processing`, or `out_for_delivery` restores the deducted stock in the same transaction. The order's `stock_compensated` flag is set to prevent double compensation.
+- Cancelling a `delivered` order is rejected. Cancelling a `cancelled` order is rejected (terminal state).
+
+## Sales-Order State Machine
+
+| From | Allowed targets |
+|---|---|
+| `pending` | `confirmed`, `cancelled` |
+| `confirmed` | `processing`, `cancelled` |
+| `processing` | `out_for_delivery`, `cancelled` |
+| `out_for_delivery` | `delivered`, `cancelled` |
+| `delivered` | _(terminal)_ |
+| `cancelled` | _(terminal)_ |
+| `quote` | only via `convert-to-order` endpoint |
+
+## Purchase-Order State Machine
+
+| From | Allowed targets |
+|---|---|
+| `draft` | `ordered`, `cancelled` |
+| `ordered` | `received`, `cancelled` |
+| `received` | _(terminal)_ |
+| `cancelled` | _(terminal)_ |
 
 ## Payment Rules
 

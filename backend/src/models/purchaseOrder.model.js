@@ -40,6 +40,11 @@ PurchaseOrder.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    stock_compensated: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     sequelize,

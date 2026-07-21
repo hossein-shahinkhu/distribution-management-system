@@ -43,7 +43,7 @@
 
 - [x] **TASK-05**: `Orders.jsx` — Collapsible advanced filter panel (date range + amount range). Draft-then-apply UX so filters only commit when "اعمال فیلتر" is clicked. Active-filter count badge on toggle button. Active-filter chip strip shown when panel is collapsed. Amount column hidden below `sm` breakpoint.
 
-- [ ] **TASK-06**: Backend — Add `GET /api/customers/:id/credit-usage` endpoint or expose outstanding balance in customer list response, to enable real-time credit usage display.
+- [x] **TASK-06**: Backend `GET /api/customers/:id/credit-usage` — Fixed broken `Op` import (was importing from `../models`, now from `sequelize`). Fixed outstanding-balance calculation to subtract non-voided receipts from each unpaid/partial invoice instead of summing full invoice totals. Frontend `Customers.jsx` now fetches credit usage per row (for customers with a credit limit) and shows a real progress bar coloured green/amber/red by usage percentage, plus the outstanding amount in تومان below the bar.
 
 - [x] **TASK-07**: `Users.jsx` — Colored role badges (`RoleBadge` component) matching Topbar `roleBg` color map exactly. Search bar (name/email/phone) + role dropdown filter. Migrated `ErrorAlert` inline component and success banner to `.banner.banner-{error|success}` CSS classes.
 

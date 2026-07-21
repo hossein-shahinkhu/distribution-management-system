@@ -1,6 +1,7 @@
 const { sequelize, PurchaseOrder, PurchaseOrderItem, Product, Supplier } = require('../models');
 const { generateOrderNumber } = require('../utils/numberGenerator');
 const { caseInsensitiveLike, parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
+const { isPurchaseTransitionAllowed } = require('../utils/orderStateMachine');
 const logger = require('../utils/logger');
 
 // ثبت سفارش خرید جدید همراه با اقلام آن (بدون تغییر موجودی انبار؛ موجودی فقط
@@ -115,18 +116,13 @@ async function getOne(req, res) {
   }
 }
 
-const VALID_STATUSES = ['draft', 'ordered', 'received', 'cancelled'];
-
-// تغییر وضعیت سفارش خرید؛ فقط هنگام گذار به 'received' (و نه هر بار)
-// موجودی انبار هر کالا به‌اندازه quantity افزایش می‌یابد (به‌صورت تراکنشی)
+// تغییر وضعیت سفارش خرید بر اساس ماشین وضعیت.
+// فقط هنگام گذار به 'received' (برای اولین بار) موجودی انبار افزایش می‌یابد.
+// گذار از 'received' مجاز نیست (وضعیت پایانی)؛ این از برگشت ناخواسته موجودی جلوگیری می‌کند.
 async function updateStatus(req, res) {
   const t = await sequelize.transaction();
   try {
     const { status } = req.body;
-    if (!VALID_STATUSES.includes(status)) {
-      await t.rollback();
-      return res.status(400).json({ message: 'وضعیت نامعتبر است.' });
-    }
 
     const purchaseOrder = await PurchaseOrder.findByPk(req.params.id, {
       include: [{ model: PurchaseOrderItem, as: 'items' }],
@@ -137,9 +133,14 @@ async function updateStatus(req, res) {
       return res.status(404).json({ message: 'سفارش خرید یافت نشد.' });
     }
 
-    const isNewlyReceived = status === 'received' && purchaseOrder.status !== 'received';
+    if (!isPurchaseTransitionAllowed(purchaseOrder.status, status)) {
+      await t.rollback();
+      return res.status(400).json({
+        message: `انتقال از وضعیت «${purchaseOrder.status}» به «${status}» مجاز نیست.`,
+      });
+    }
 
-    if (isNewlyReceived) {
+    if (status === 'received') {
       for (const item of purchaseOrder.items) {
         const product = await Product.findByPk(item.product_id, { transaction: t, lock: t.LOCK.UPDATE });
         if (!product) {

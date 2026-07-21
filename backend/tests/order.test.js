@@ -50,16 +50,23 @@ describe('ثبت سفارش', () => {
     expect(unchangedProduct.stock_quantity).toBe(15);
   });
 
-  test('تغییر وضعیت سفارش به تحویل‌شده', async () => {
+  test('تغییر وضعیت سفارش به تحویل‌شده (از طریق زنجیره کامل وضعیت)', async () => {
     const orderRes = await request(app)
       .post('/api/orders')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ customer_id: customer.id, items: [{ product_id: product.id, quantity: 2 }] });
 
+    const orderId = orderRes.body.id;
+    for (const st of ['confirmed', 'processing', 'out_for_delivery', 'delivered']) {
+      await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ status: st });
+    }
+
     const statusRes = await request(app)
-      .patch(`/api/orders/${orderRes.body.id}/status`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'delivered' });
+      .get(`/api/orders/${orderId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
 
     expect(statusRes.status).toBe(200);
     expect(statusRes.body.status).toBe('delivered');

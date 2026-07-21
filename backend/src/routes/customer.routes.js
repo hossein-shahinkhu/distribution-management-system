@@ -3,14 +3,14 @@ const router  = express.Router();
 const ctrl    = require('../controllers/customer.controller');
 const { authenticate, authorize } = require('../middleware/auth.middleware');
 const validate = require('../middleware/validate');
-const { createCustomerRules } = require('../validators/customer.validators');
+const { createCustomerRules, updateCustomerRules } = require('../validators/customer.validators');
 
-router.get('/',       authenticate,                                                      ctrl.getAll);
-router.get('/:id',    authenticate,                                                      ctrl.getOne);
+router.get('/',       authenticate,                                                                         ctrl.getAll);
+router.get('/:id',    authenticate,                                                                         ctrl.getOne);
 // Q-01 / TASK-06: credit usage for a specific customer
-router.get('/:id/credit-usage', authenticate, authorize('admin', 'salesperson'),        ctrl.getCreditUsage);
-router.post('/',      authenticate, authorize('admin', 'salesperson'), createCustomerRules, validate, ctrl.create);
-router.put('/:id',    authenticate, authorize('admin', 'salesperson'),                  ctrl.update);
-router.delete('/:id', authenticate, authorize('admin'),                                 ctrl.remove);
+router.get('/:id/credit-usage', authenticate, authorize('admin', 'salesperson'),                            ctrl.getCreditUsage);
+router.post('/',      authenticate, authorize('admin', 'salesperson'), createCustomerRules, validate,       ctrl.create);
+router.put('/:id',    authenticate, authorize('admin', 'salesperson'), updateCustomerRules, validate,       ctrl.update);
+router.delete('/:id', authenticate, authorize('admin'),                                                     ctrl.remove);
 
 module.exports = router;

@@ -59,6 +59,11 @@ Order.init(
     notes: {
       type: DataTypes.TEXT,
     },
+    stock_compensated: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     sequelize,

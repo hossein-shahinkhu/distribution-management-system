@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
@@ -84,7 +84,7 @@ export default function Orders() {
   const [status, setStatus]   = useState('');
   const [routeId, setRouteId] = useState('');
 
-  /* ── Advanced (client-side) filter state ── */
+  /* ── Advanced (server-side) filter state ── */
   const [advanced, setAdvanced]       = useState(EMPTY_ADVANCED);
   const [panelOpen, setPanelOpen]     = useState(false);
   // draft holds edits until the user clicks Apply
@@ -111,61 +111,37 @@ export default function Orders() {
   const load = useCallback((page = 1) => {
     setLoading(true);
     ordersApi
-      .getAll({ search, status, route_id: routeId, page })
+      .getAll({
+        search,
+        status,
+        route_id:    routeId || undefined,
+        date_from:   advanced.dateFrom  || undefined,
+        date_to:     advanced.dateTo    || undefined,
+        amount_min:  advanced.amountMin !== '' ? advanced.amountMin : undefined,
+        amount_max:  advanced.amountMax !== '' ? advanced.amountMax : undefined,
+        page,
+      })
       .then((r) => {
         setOrders(r.data.data);
         setPagination(r.data.pagination);
         setLoading(false);
       });
-  }, [search, status, routeId]);
+  }, [search, status, routeId, advanced]);
 
   /* Re-fetch when server-side filters change (debounced for search) */
   useEffect(() => {
     const t = setTimeout(() => load(1), 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, status, routeId]);
+  }, [search, status, routeId, advanced]);
 
   /* Load routes once */
   useEffect(() => {
     routesApi.getAll().then((r) => setRoutes(r.data));
   }, []);
 
-  /* ── Client-side advanced filtering ── */
-  const filtered = useMemo(() => {
-    let result = orders;
-
-    if (advanced.dateFrom) {
-      const from = new Date(advanced.dateFrom);
-      from.setHours(0, 0, 0, 0);
-      result = result.filter((o) => {
-        const d = new Date(o.created_at);
-        return d >= from;
-      });
-    }
-
-    if (advanced.dateTo) {
-      const to = new Date(advanced.dateTo);
-      to.setHours(23, 59, 59, 999);
-      result = result.filter((o) => {
-        const d = new Date(o.created_at);
-        return d <= to;
-      });
-    }
-
-    if (advanced.amountMin !== '') {
-      const min = Number(advanced.amountMin);
-      result = result.filter((o) => Number(o.total_amount) >= min);
-    }
-
-    if (advanced.amountMax !== '') {
-      const max = Number(advanced.amountMax);
-      result = result.filter((o) => Number(o.total_amount) <= max);
-    }
-
-    return result;
-  }, [orders, advanced]);
-
+  // فیلتر advanced روی backend انجام می‌شود؛ orders مستقیم نمایش داده می‌شود
+  const filtered = orders;
   const activeAdvancedCount = countActiveAdvanced(advanced);
 
   /* ── Advanced panel handlers ── */

@@ -48,7 +48,7 @@ Role abbreviations below:
 | GET | `/auth/me` | Any | Returns authenticated user ID, name, email, and role |
 | POST | `/auth/register` | A | Body: `full_name`, `email`, `password`, `role_name`, optional `phone`; creates a user and also returns a token for that new user |
 | GET | `/auth/users` | A | Returns all users with roles, excluding password hashes |
-| PATCH | `/auth/users/:id` | A | Allowlisted body: `full_name`, `phone`, `role_name`, `is_active`, `commission_rate` |
+| PATCH | `/auth/users/:id` | A | Validated body (all optional): `full_name`, `phone`, `role_name` (must be a valid role), `is_active` (boolean), `commission_rate` (0–100) |
 | PATCH | `/auth/change-password` | Any | Body: `current_password`, `new_password`; new password minimum is 8 characters |
 
 ## Categories
@@ -76,12 +76,10 @@ Role abbreviations below:
 |---|---|---|---|
 | GET | `/customers` | Any | Paginated; query: `search`, `page`, `limit`; search matches name, business name, or phone |
 | GET | `/customers/:id` | Any | Returns one customer |
-| GET | `/customers/:id/credit-usage` | A, S | Intended to return `credit_limit`, `outstanding_balance`, `available_credit`, and unpaid invoice count |
-| POST | `/customers` | A, S | Required: `full_name`, `phone`; optional business/contact/credit/route data |
-| PUT | `/customers/:id` | A, S | Allowlisted customer fields |
+| GET | `/customers/:id/credit-usage` | A, S | Returns `credit_limit`, `outstanding_balance`, `available_credit`, and unpaid invoice count |
+| POST | `/customers` | A, S | Required: `full_name` (non-empty), `phone` (8–15 digits/symbols); optional `credit_limit` (≥ 0), `route_id` |
+| PUT | `/customers/:id` | A, S | All fields optional; same validation rules as POST |
 | DELETE | `/customers/:id` | A | Physically deletes the customer |
-
-Current issue: this endpoint currently returns HTTP 500 because the controller imports Sequelize `Op` from the model index, which does not export it. Once that import is corrected, the calculation will still overstate partially paid invoices because it sums their full invoice totals instead of subtracting non-voided receipts.
 
 ## Routes
 
@@ -89,8 +87,8 @@ Current issue: this endpoint currently returns HTTP 500 because the controller i
 |---|---|---|---|
 | GET | `/routes` | Any | Returns all routes ordered by name |
 | GET | `/routes/:id` | Any | Returns one route |
-| POST | `/routes` | A | Body: `name`, optional `description` |
-| PUT | `/routes/:id` | A | Allowlisted `name`, `description` |
+| POST | `/routes` | A | Validated body: `name` (required, non-empty), optional `description` |
+| PUT | `/routes/:id` | A | All fields optional; `name` must be non-empty if supplied |
 | DELETE | `/routes/:id` | A | Physically deletes the route |
 
 ## Distributors
@@ -98,8 +96,8 @@ Current issue: this endpoint currently returns HTTP 500 because the controller i
 | Method | Path | Access | Request / behavior |
 |---|---|---|---|
 | GET | `/distributors` | Any | Returns distributors with optional linked user |
-| POST | `/distributors` | A | Required: `full_name`, `phone`; optional vehicle, user link, commission rate |
-| PUT | `/distributors/:id` | A | Updates allowlisted distributor fields |
+| POST | `/distributors` | A | Validated body: `full_name` (required), `phone` (required, 8–15 digits/symbols), optional `commission_rate` (0–100), `user_id` |
+| PUT | `/distributors/:id` | A | All fields optional; same validation rules as POST |
 | DELETE | `/distributors/:id` | A | Soft-deactivates the distributor |
 
 One user account can be linked to at most one distributor by controller enforcement.
@@ -108,16 +106,30 @@ One user account can be linked to at most one distributor by controller enforcem
 
 | Method | Path | Access | Request / behavior |
 |---|---|---|---|
-| GET | `/orders` | Any | Paginated; query: `search`, `status`, `route_id`, `page`, `limit`; distributors see only assigned orders |
+| GET | `/orders` | Any | Paginated; query: `search`, `status`, `route_id`, `date_from`, `date_to`, `amount_min`, `amount_max`, `page`, `limit`; distributors see only assigned orders |
 | GET | `/orders/:id` | Any | Returns customer, distributor, items, and products |
-| POST | `/orders` | A, S | Body: `customer_id`, non-empty `items[{product_id,quantity}]`, optional `salesperson_id`, `distributor_id`, `notes`, `is_quote` |
-| PATCH | `/orders/:id/status` | A, W, D | Body: `status`; accepted: `pending`, `confirmed`, `processing`, `out_for_delivery`, `delivered`, `cancelled` |
+| POST | `/orders` | A, S | Body: `customer_id`, non-empty `items[{product_id,quantity}]`, optional `distributor_id`, `notes`, `is_quote`; `salesperson_id` is derived from the authenticated user and cannot be overridden by the client |
+| PATCH | `/orders/:id/status` | A, W, D | Validated body: `status` must be a valid sales-order status; enforces the transition table below; returns 400 for invalid transitions; quotes cannot be transitioned through this endpoint |
 | PATCH | `/orders/:id/assign-distributor` | A | Body: `distributor_id`; assignment also sets `out_for_delivery` |
 | POST | `/orders/:id/convert-to-order` | A, S | Converts a quote after locking products, checking stock, and deducting inventory |
 
 Order creation uses a database transaction and row locks. Normal orders deduct stock; quotes do not.
 
-Known access limitation: order detail and status update do not currently enforce distributor ownership.
+**Sales-order transition table:**
+
+| From | Allowed targets |
+|---|---|
+| `pending` | `confirmed`, `cancelled` |
+| `confirmed` | `processing`, `cancelled` |
+| `processing` | `out_for_delivery`, `cancelled` |
+| `out_for_delivery` | `delivered`, `cancelled` |
+| `delivered` | _(terminal)_ |
+| `cancelled` | _(terminal)_ |
+| `quote` | only via `convert-to-order` |
+
+Cancelling from `pending`, `confirmed`, `processing`, or `out_for_delivery` restores the previously deducted stock in the same transaction. The `stock_compensated` flag on the order prevents double restoration if the same request is retried. A second cancel attempt is rejected because `cancelled` is a terminal state.
+
+Distributor ownership is enforced on all three order endpoints: list, detail, and status update. A distributor user can only access orders where `distributor_id` matches their linked `Distributor` record. A distributor user with no linked record receives an empty list and 403 on detail/status endpoints.
 
 ## Sales Invoices
 
@@ -125,8 +137,8 @@ Known access limitation: order detail and status update do not currently enforce
 |---|---|---|---|
 | GET | `/invoices` | Any | Returns all invoices with order, customer, items, and products |
 | GET | `/invoices/:id` | Any | Returns one invoice with order details |
-| POST | `/invoices` | A, S | Body: `order_id`; creates one invoice per order with 9% tax and a 14-day due date |
-| PATCH | `/invoices/:id/payment-status` | A | Body: `payment_status` in `unpaid`, `partial`, `paid` |
+| POST | `/invoices` | A, S | Validated body: `order_id` (required integer); creates one invoice per order with 9% tax and a 14-day due date |
+| PATCH | `/invoices/:id/payment-status` | A | Validated body: `payment_status` must be one of `unpaid`, `partial`, `paid` |
 
 Linked treasury receipts automatically recalculate sales-invoice payment status.
 
@@ -147,9 +159,18 @@ Linked treasury receipts automatically recalculate sales-invoice payment status.
 | GET | `/purchase-orders` | A, W | Paginated; query: `search`, `status`, `supplier_id`, `page`, `limit` |
 | GET | `/purchase-orders/:id` | A, W | Returns supplier and item details |
 | POST | `/purchase-orders` | A, W | Body: `supplier_id`, non-empty `items[{product_id,quantity,unit_cost}]`, optional dates and notes |
-| PATCH | `/purchase-orders/:id/status` | A, W | Body: `status` in `draft`, `ordered`, `received`, `cancelled` |
+| PATCH | `/purchase-orders/:id/status` | A, W | Body: `status`; enforces the transition table below; returns 400 for invalid transitions |
 
-The first transition into `received` increases product stock transactionally. Later status changes do not reverse that increase.
+**Purchase-order transition table:**
+
+| From | Allowed targets |
+|---|---|
+| `draft` | `ordered`, `cancelled` |
+| `ordered` | `received`, `cancelled` |
+| `received` | _(terminal)_ — inventory already added; reversal is blocked |
+| `cancelled` | _(terminal)_ |
+
+The transition into `received` increases product stock transactionally. `received` is a terminal state; a further status change is rejected with HTTP 400, preventing accidental double stock increases.
 
 ## Purchase Invoices
 

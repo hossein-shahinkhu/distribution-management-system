@@ -13,14 +13,25 @@ function formatCurrency(value) {
 }
 
 /* ── Status workflow ─────────────────────────────────────── */
-const STATUS_OPTIONS = [
-  { value: 'pending',          label: 'در انتظار تأیید' },
-  { value: 'confirmed',        label: 'تأییدشده' },
-  { value: 'processing',       label: 'در حال آماده‌سازی' },
-  { value: 'out_for_delivery', label: 'در مسیر تحویل' },
-  { value: 'delivered',        label: 'تحویل‌شده' },
-  { value: 'cancelled',        label: 'لغوشده' },
-];
+const STATUS_LABELS = {
+  pending:          'در انتظار تأیید',
+  confirmed:        'تأییدشده',
+  processing:       'در حال آماده‌سازی',
+  out_for_delivery: 'در مسیر تحویل',
+  delivered:        'تحویل‌شده',
+  cancelled:        'لغوشده',
+};
+
+// آینه state machine بک‌اند — گزینه‌های مجاز برای هر وضعیت فعلی
+const ALLOWED_NEXT = {
+  pending:          ['confirmed', 'cancelled'],
+  confirmed:        ['processing', 'cancelled'],
+  processing:       ['out_for_delivery', 'cancelled'],
+  out_for_delivery: ['delivered', 'cancelled'],
+  delivered:        [],
+  cancelled:        [],
+  quote:            [],
+};
 
 // Ordered pipeline (cancelled is not in the stepper flow)
 const STATUS_PIPELINE = [
@@ -111,10 +122,16 @@ export default function OrderDetail() {
   }, [user]);
 
   async function handleStatusChange(status) {
-    await ordersApi.updateStatus(id, status);
-    setMessage('وضعیت سفارش به‌روزرسانی شد.');
-    setMessageType('success');
-    load();
+    if (!status || status === order.status) return;
+    try {
+      await ordersApi.updateStatus(id, status);
+      setMessage('وضعیت سفارش به‌روزرسانی شد.');
+      setMessageType('success');
+      load();
+    } catch (err) {
+      setMessage(err.response?.data?.message || 'به‌روزرسانی وضعیت ناموفق بود.');
+      setMessageType('error');
+    }
   }
 
   async function handleAssignDistributor() {
@@ -292,20 +309,36 @@ export default function OrderDetail() {
           )}
 
           {/* Status change */}
-          <div className="card rounded-2xl p-5">
-            <h3 className="mb-3 font-bold text-ink">تغییر وضعیت</h3>
-            <Select
-              value={order.status}
-              onChange={(e) => handleStatusChange(e.target.value)}
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </Select>
-            <p className="mt-2 text-xs text-muted">
-              تغییر وضعیت بلافاصله اعمال می‌شود.
-            </p>
-          </div>
+          {(() => {
+            const allowed = ALLOWED_NEXT[order.status] ?? [];
+            // توزیع‌کننده فقط delivered می‌تواند انتخاب کند
+            const roleFiltered = user?.role === 'distributor'
+              ? allowed.filter((s) => s === 'delivered')
+              : allowed;
+            if (roleFiltered.length === 0) return null;
+            return (
+              <div className="card rounded-2xl p-5">
+                <h3 className="mb-3 font-bold text-ink">تغییر وضعیت</h3>
+                <div className="flex flex-col gap-2">
+                  {roleFiltered.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => handleStatusChange(s)}
+                      className={`w-full rounded-xl border px-3 py-2.5 text-sm font-medium transition text-right
+                        ${s === 'cancelled'
+                          ? 'border-danger/30 bg-danger/5 text-danger hover:bg-danger/10'
+                          : 'border-navy-200 bg-navy-50 text-navy-700 hover:bg-navy-100'}`}
+                    >
+                      {STATUS_LABELS[s]}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-muted">
+                  فقط گزینه‌های مجاز از وضعیت فعلی نمایش داده می‌شوند.
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Distributor assignment */}
           {user?.role === 'admin' && (
