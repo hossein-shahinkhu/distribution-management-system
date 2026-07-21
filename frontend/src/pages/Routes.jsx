@@ -96,10 +96,12 @@ export default function RoutesPage() {
           <Input label="نام مسیر" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
           <Input label="توضیحات" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
           {error && (
-            <p className="flex items-center gap-1.5 rounded-xl bg-danger/8 px-4 py-2.5 text-sm text-danger">
-              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <div className="banner banner-error">
+              <svg className="h-4 w-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
               {error}
-            </p>
+            </div>
           )}
           <Button type="submit" className="w-full">{editingId ? 'ذخیره تغییرات' : 'ثبت مسیر'}</Button>
         </form>
