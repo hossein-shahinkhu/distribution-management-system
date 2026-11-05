@@ -2,12 +2,18 @@ const { Invoice, Order, OrderItem, Product, Customer } = require('../models');
 const { generateInvoiceNumber } = require('../utils/numberGenerator');
 const logger = require('../utils/logger');
 
-const TAX_RATE = 0.09; // مالیات بر ارزش افزوده (قابل تنظیم)
+const DEFAULT_TAX_RATE = 9; // درصد — می‌تواند از طرف کلاینت تغییر کند
 
 // صدور فاکتور بر اساس یک سفارش موجود
 async function createFromOrder(req, res) {
   try {
-    const { order_id } = req.body;
+    const { order_id, tax_rate } = req.body;
+
+    const rate = tax_rate !== undefined ? Number(tax_rate) : DEFAULT_TAX_RATE;
+    if (rate < 0 || rate > 100) {
+      return res.status(400).json({ message: 'درصد مالیات باید بین ۰ تا ۱۰۰ باشد.' });
+    }
+
     const order = await Order.findByPk(order_id);
     if (!order) return res.status(404).json({ message: 'سفارش یافت نشد.' });
 
@@ -17,13 +23,14 @@ async function createFromOrder(req, res) {
     }
 
     const subtotal    = Number(order.total_amount);
-    const taxAmount   = Math.round(subtotal * TAX_RATE);
+    const taxAmount   = Math.round(subtotal * (rate / 100));
     const totalAmount = subtotal + taxAmount;
 
     const invoice = await Invoice.create({
       invoice_number: generateInvoiceNumber(),
       order_id,
       subtotal,
+      tax_rate:     rate,
       tax_amount:   taxAmount,
       total_amount: totalAmount,
       due_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // ۱۴ روز مهلت پرداخت

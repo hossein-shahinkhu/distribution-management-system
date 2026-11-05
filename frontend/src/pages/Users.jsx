@@ -54,6 +54,8 @@ export default function Users() {
   const [editingId, setEditingId]   = useState(null);
   const [error, setError]           = useState('');
   const [success, setSuccess]       = useState('');
+  const [saving, setSaving]         = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   /* ── Client-side filter state ── */
   const [search, setSearch]         = useState('');
@@ -89,6 +91,7 @@ export default function Users() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setSaving(true);
     try {
       await usersApi.register(form);
       setModalOpen(false);
@@ -96,18 +99,23 @@ export default function Users() {
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'ثبت کاربر ناموفق بود.');
+    } finally {
+      setSaving(false);
     }
   }
 
   async function handleEditSubmit(e) {
     e.preventDefault();
     setError('');
+    setSavingEdit(true);
     try {
       await usersApi.update(editingId, editForm);
       setEditModalOpen(false);
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'ویرایش کاربر ناموفق بود.');
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -270,7 +278,7 @@ export default function Users() {
       {/* ══════════════════════════════════════════════════════════
           Create user modal
       ══════════════════════════════════════════════════════════ */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="افزودن کاربر جدید">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="افزودن کاربر جدید" saving={saving}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
             label="نام کامل"
@@ -316,14 +324,24 @@ export default function Users() {
             </div>
           )}
 
-          <Button type="submit" className="w-full">ثبت کاربر</Button>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : 'ثبت کاربر'}
+          </Button>
         </form>
       </Modal>
 
       {/* ══════════════════════════════════════════════════════════
           Edit user modal
       ══════════════════════════════════════════════════════════ */}
-      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="ویرایش کاربر">
+      <Modal open={editModalOpen} onClose={() => setEditModalOpen(false)} title="ویرایش کاربر" saving={savingEdit}>
         <form onSubmit={handleEditSubmit} className="space-y-4">
           <Input
             label="نام کامل"
@@ -373,7 +391,17 @@ export default function Users() {
             </div>
           )}
 
-          <Button type="submit" className="w-full">ذخیره تغییرات</Button>
+          <Button type="submit" className="w-full" disabled={savingEdit}>
+            {savingEdit ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : 'ذخیره تغییرات'}
+          </Button>
         </form>
       </Modal>
     </Layout>

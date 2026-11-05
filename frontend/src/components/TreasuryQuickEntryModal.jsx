@@ -17,13 +17,16 @@ export default function TreasuryQuickEntryModal({
 }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (open) { setForm(EMPTY_FORM); setError(''); }
+    if (open) { setForm(EMPTY_FORM); setError(''); setSaving(false); }
   }, [open]);
 
   async function handleSubmit(e) {
-    e.preventDefault(); setError('');
+    e.preventDefault();
+    setError('');
+    setSaving(true);
     try {
       await treasuryApi.create({
         type, amount: Number(form.amount), method: form.method,
@@ -32,8 +35,13 @@ export default function TreasuryQuickEntryModal({
         purchase_invoice_id: purchaseInvoiceId || null,
         customer_id: customerId || null,
       });
-      onClose(); onSuccess?.();
-    } catch (err) { setError(err.response?.data?.message || 'ثبت تراکنش ناموفق بود.'); }
+      onClose();
+      onSuccess?.();
+    } catch (err) {
+      setError(err.response?.data?.message || 'ثبت تراکنش ناموفق بود.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const title = type === 'receipt' ? 'ثبت دریافت' : 'ثبت پرداخت';
@@ -41,7 +49,7 @@ export default function TreasuryQuickEntryModal({
   function f(v) { setForm((p) => ({ ...p, ...v })); }
 
   return (
-    <Modal open={open} onClose={onClose} title={title}>
+    <Modal open={open} onClose={saving ? undefined : onClose} title={title} saving={saving}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <Input
@@ -72,14 +80,24 @@ export default function TreasuryQuickEntryModal({
           onChange={(e) => f({ description: e.target.value })}
         />
         {error && (
-          <p className="flex items-center gap-1.5 rounded-xl bg-danger/8 px-4 py-2.5 text-sm text-danger">
-            <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="banner banner-error">
+            <svg className="h-4 w-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             {error}
-          </p>
+          </div>
         )}
-        <Button type="submit" className="w-full">{title}</Button>
+        <Button type="submit" className="w-full" disabled={saving}>
+          {saving ? (
+            <span className="flex items-center gap-2">
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              در حال ذخیره...
+            </span>
+          ) : title}
+        </Button>
       </form>
     </Modal>
   );

@@ -98,6 +98,7 @@ export default function Treasury() {
   const [modalOpen, setModalOpen]       = useState(false);
   const [form, setForm]                 = useState(EMPTY_FORM);
   const [error, setError]               = useState('');
+  const [saving, setSaving]             = useState(false);
 
   function load(page = 1) {
     setLoading(true);
@@ -142,6 +143,7 @@ export default function Treasury() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setSaving(true);
     try {
       await treasuryApi.create({
         ...form,
@@ -154,6 +156,8 @@ export default function Treasury() {
       invoicesApi.getAll().then((r) => setInvoices(r.data));
     } catch (err) {
       setError(err.response?.data?.message || 'ثبت تراکنش ناموفق بود.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -317,7 +321,7 @@ export default function Treasury() {
       <Pagination page={pagination.page} totalPages={pagination.totalPages} onChange={load} />
 
       {/* ── Create modal ── */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="ثبت تراکنش جدید">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="ثبت تراکنش جدید" saving={saving}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Select
             label="نوع تراکنش"
@@ -391,7 +395,17 @@ export default function Treasury() {
               {error}
             </div>
           )}
-          <Button type="submit" className="w-full">ثبت تراکنش</Button>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : 'ثبت تراکنش'}
+          </Button>
         </form>
       </Modal>
     </Layout>

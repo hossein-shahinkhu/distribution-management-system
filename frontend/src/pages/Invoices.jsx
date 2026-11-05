@@ -155,6 +155,7 @@ export default function Invoices() {
                 <th>مشتری</th>
                 {/* Date hidden on very small screens */}
                 <th className="hidden sm:table-cell">تاریخ صدور</th>
+                <th>مالیات</th>
                 <th>مبلغ کل</th>
                 <th>وضعیت پرداخت</th>
                 <th>تغییر وضعیت</th>
@@ -165,7 +166,7 @@ export default function Invoices() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="border-b border-border">
-                    {[24, 32, 20, 28, 20, 32, 20].map((w, j) => (
+                    {[24, 32, 20, 16, 28, 20, 32, 20].map((w, j) => (
                       <td key={j} className="px-4 py-4">
                         <div className="skeleton h-4" style={{ width: w * 4 }} />
                       </td>
@@ -174,7 +175,7 @@ export default function Invoices() {
                 ))
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <EmptyState
                       title={invoices.length === 0 ? 'هنوز فاکتوری صادر نشده' : 'نتیجه‌ای یافت نشد'}
                       description={
@@ -213,6 +214,10 @@ export default function Invoices() {
                       {/* Date — hidden on xs */}
                       <td className="hidden tabular text-sm text-muted sm:table-cell">
                         {formatDate(inv.issue_date || inv.created_at)}
+                      </td>
+                      {/* Tax rate */}
+                      <td className="tabular text-sm text-muted">
+                        {inv.tax_rate != null ? `${Number(inv.tax_rate)}٪` : '—'}
                       </td>
                       {/* Amount */}
                       <td className="tabular">{formatCurrency(inv.total_amount)}</td>

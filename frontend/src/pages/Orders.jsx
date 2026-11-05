@@ -99,6 +99,7 @@ export default function Orders() {
   const [loading, setLoading]         = useState(true);
   const [modalOpen, setModalOpen]     = useState(false);
   const [error, setError]             = useState('');
+  const [saving, setSaving]           = useState(false);
 
   /* ── New-order form state ── */
   const [customerId, setCustomerId]   = useState('');
@@ -202,6 +203,7 @@ export default function Orders() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setSaving(true);
     try {
       const payload = {
         customer_id: customerId,
@@ -218,6 +220,8 @@ export default function Orders() {
       load(pagination.page);
     } catch (err) {
       setError(err.response?.data?.message || 'ثبت سفارش ناموفق بود.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -493,6 +497,7 @@ export default function Orders() {
         onClose={() => setModalOpen(false)}
         title="ثبت سفارش جدید"
         width="max-w-2xl"
+        saving={saving}
       >
         <form onSubmit={handleSubmit} className="space-y-5">
           <Select
@@ -588,7 +593,17 @@ export default function Orders() {
             </div>
           )}
 
-          <Button type="submit" className="w-full">ثبت سفارش</Button>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : 'ثبت سفارش'}
+          </Button>
         </form>
       </Modal>
     </Layout>

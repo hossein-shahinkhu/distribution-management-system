@@ -34,6 +34,11 @@ PurchaseInvoice.init(
       type: DataTypes.DECIMAL(14, 2),
       allowNull: false,
     },
+    tax_rate: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: false,
+      defaultValue: 0,
+    },
     tax_amount: {
       type: DataTypes.DECIMAL(14, 2),
       defaultValue: 0,

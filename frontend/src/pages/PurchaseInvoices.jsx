@@ -43,6 +43,7 @@ export default function PurchaseInvoices() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
 
@@ -74,7 +75,9 @@ export default function PurchaseInvoices() {
   }
 
   async function handleSubmit(e) {
-    e.preventDefault(); setError('');
+    e.preventDefault();
+    setError('');
+    setSaving(true);
     try {
       await purchaseInvoicesApi.create({
         ...form,
@@ -85,8 +88,13 @@ export default function PurchaseInvoices() {
         tax_amount: Number(form.tax_amount || 0),
         total_amount: Number(form.total_amount),
       });
-      setModalOpen(false); load(pagination.page);
-    } catch (err) { setError(err.response?.data?.message || 'ثبت فاکتور خرید ناموفق بود.'); }
+      setModalOpen(false);
+      load(pagination.page);
+    } catch (err) {
+      setError(err.response?.data?.message || 'ثبت فاکتور خرید ناموفق بود.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function f(v) { setForm((p) => ({ ...p, ...v })); }
@@ -146,7 +154,7 @@ export default function PurchaseInvoices() {
 
       <Pagination page={pagination.page} totalPages={pagination.totalPages} onChange={load} />
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="ثبت فاکتور خرید" width="max-w-2xl">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="ثبت فاکتور خرید" width="max-w-2xl" saving={saving}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Select label="سفارش خرید (اختیاری)" value={form.purchase_order_id} onChange={(e) => handlePurchaseOrderChange(e.target.value)}>
             <option value="">بدون سفارش خرید (ثبت مستقیم)</option>
@@ -172,7 +180,17 @@ export default function PurchaseInvoices() {
           </div>
 
           <ErrorAlert msg={error} />
-          <Button type="submit" className="w-full">ثبت فاکتور خرید</Button>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : 'ثبت فاکتور خرید'}
+          </Button>
         </form>
       </Modal>
 

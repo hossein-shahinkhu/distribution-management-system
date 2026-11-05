@@ -8,5 +8,7 @@ router.get('/inventory', authenticate, authorize('admin', 'warehouse_keeper'), c
 router.get('/distributor-performance', authenticate, authorize('admin'), ctrl.distributorPerformanceReport);
 router.get('/commissions', authenticate, authorize('admin'), ctrl.commissionsReport);
 router.get('/treasury-balance', authenticate, authorize('admin'), ctrl.treasuryBalanceReport);
+router.get('/purchasing', authenticate, authorize('admin', 'warehouse_keeper'), ctrl.purchasingReport);
+router.get('/overview', authenticate, authorize('admin'), ctrl.overviewReport);
 
 module.exports = router;

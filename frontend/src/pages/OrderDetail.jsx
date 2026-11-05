@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
+import Input from '../components/Input';
 import Select from '../components/Select';
 import StatusBadge from '../components/StatusBadge';
 import { ordersApi } from '../api/orders';
@@ -101,6 +102,7 @@ export default function OrderDetail() {
   const [order, setOrder] = useState(null);
   const [distributors, setDistributors] = useState([]);
   const [selectedDistributor, setSelectedDistributor] = useState('');
+  const [taxRate, setTaxRate] = useState('9');
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('success');
   const [loading, setLoading] = useState(true);
@@ -144,9 +146,11 @@ export default function OrderDetail() {
 
   async function handleCreateInvoice() {
     try {
-      await invoicesApi.createFromOrder(order.id);
+      const rate = taxRate !== '' ? Number(taxRate) : undefined;
+      await invoicesApi.createFromOrder(order.id, rate);
       setMessage('فاکتور با موفقیت صادر شد.');
       setMessageType('success');
+      load();
     } catch (err) {
       setMessage(err.response?.data?.message || 'صدور فاکتور ناموفق بود.');
       setMessageType('error');
@@ -254,9 +258,25 @@ export default function OrderDetail() {
               </table>
             </div>
             {/* Total row */}
-            <div className="flex items-center justify-between border-t border-border bg-navy-50/50 px-5 py-4">
-              <span className="text-sm font-medium text-muted">مجموع کل سفارش</span>
-              <span className="tabular text-base font-bold text-ink">{formatCurrency(order.total_amount)}</span>
+            <div className="flex flex-col gap-1 border-t border-border bg-navy-50/50 px-5 py-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted">جمع کالا (بدون مالیات)</span>
+                <span className="tabular font-medium text-ink">{formatCurrency(order.total_amount)}</span>
+              </div>
+              {order.Invoice && (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted">
+                      مالیات ({Number(order.Invoice.tax_rate) ?? 9}٪)
+                    </span>
+                    <span className="tabular text-muted">{formatCurrency(order.Invoice.tax_amount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-base">
+                    <span className="font-semibold text-ink">مجموع فاکتور</span>
+                    <span className="tabular font-bold text-ink">{formatCurrency(order.Invoice.total_amount)}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -373,9 +393,20 @@ export default function OrderDetail() {
           {(user?.role === 'admin' || user?.role === 'salesperson') && (
             <div className="card rounded-2xl p-5">
               <h3 className="mb-2 font-bold text-ink">صدور فاکتور</h3>
-              <p className="mb-4 text-sm text-muted">
+              <p className="mb-3 text-sm text-muted">
                 فاکتور رسمی برای این سفارش صادر کنید.
               </p>
+              <Input
+                label="درصد مالیات (٪)"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={taxRate}
+                onChange={(e) => setTaxRate(e.target.value)}
+                className="mb-4"
+                hint="پیش‌فرض ۹٪ — برای معاف از مالیات ۰ وارد کنید"
+              />
               <Button className="w-full" variant="amber" onClick={handleCreateInvoice}>
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
