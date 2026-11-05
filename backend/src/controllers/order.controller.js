@@ -1,3 +1,4 @@
+const orderService = require('../services/orderService');
 const { sequelize, Order, OrderItem, Product, Customer, Distributor, User } = require('../models');
 const { Op } = require('sequelize');
 const { caseInsensitiveLike, parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
@@ -211,99 +212,31 @@ async function getOne(req, res) {
   }
 }
 
-const VALID_STATUSES = ['pending', 'confirmed', 'processing', 'out_for_delivery', 'delivered', 'cancelled'];
-
-// نقشه‌ی گذارهای مجاز؛ 'delivered' و 'cancelled' وضعیت‌های پایانی هستند و
-// هیچ گذار خروجی از آن‌ها مجاز نیست. لغو از هر وضعیت غیرپایانی مجاز است.
-const ORDER_TRANSITIONS = {
-  pending: ['confirmed', 'cancelled'],
-  confirmed: ['processing', 'cancelled'],
-  processing: ['out_for_delivery', 'cancelled'],
-  out_for_delivery: ['delivered', 'cancelled'],
-  delivered: [],
-  cancelled: [],
-};
-
 async function updateStatus(req, res) {
-  const t = await sequelize.transaction();
   try {
-    const { status } = req.body;
-    if (!VALID_STATUSES.includes(status)) {
-      await t.rollback();
-      return res.status(400).json({ message: 'وضعیت نامعتبر است.' });
-    }
-    const order = await Order.findByPk(req.params.id, {
-      include: [{ model: OrderItem, as: 'items' }],
-      transaction: t,
-    });
-    if (!order) {
-      await t.rollback();
-      return res.status(404).json({ message: 'سفارش یافت نشد.' });
-    }
-
+    let callerDistributorId = null;
     if (req.user.Role?.name === 'distributor') {
       const ownDistributor = await getOwnDistributor(req);
-      if (!ownDistributor || order.distributor_id !== ownDistributor.id) {
-        await t.rollback();
-        return res.status(403).json({ message: 'شما به این سفارش دسترسی ندارید.' });
-      }
+      if (!ownDistributor) return res.status(403).json({ message: 'شما به این سفارش دسترسی ندارید.' });
+      callerDistributorId = ownDistributor.id;
     }
-
-    // پیش‌فاکتورها از مسیر updateStatus قابل تغییر وضعیت نیستند؛ باید از
-    // convert-to-order استفاده شود.
-    if (order.is_quote) {
-      await t.rollback();
-      return res.status(400).json({ message: 'وضعیت پیش‌فاکتور از این مسیر قابل تغییر نیست.' });
-    }
-
-    const allowedNext = ORDER_TRANSITIONS[order.status] || [];
-    if (!allowedNext.includes(status)) {
-      await t.rollback();
-      return res.status(400).json({ message: `گذار از وضعیت «${order.status}» به «${status}» مجاز نیست.` });
-    }
-
-    if (status === 'cancelled') {
-      for (const item of order.items) {
-        const product = await Product.findByPk(item.product_id, { transaction: t, lock: t.LOCK.UPDATE });
-        if (product) {
-          await product.update(
-            { stock_quantity: product.stock_quantity + item.quantity },
-            { transaction: t }
-          );
-        }
-      }
-    }
-
-    await order.update(
-      {
-        status,
-        delivery_date: status === 'delivered' ? new Date() : order.delivery_date,
-      },
-      { transaction: t }
-    );
-
-    await t.commit();
+    const order = await orderService.updateOrderStatus(req.params.id, req.body.status, callerDistributorId);
     return res.json(order);
   } catch (err) {
-    await t.rollback();
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(err.statusCode || 500).json({ message: err.statusCode ? err.message : 'خطای سرور' });
   }
 }
 
 async function assignDistributor(req, res) {
   try {
-    const { distributor_id } = req.body;
-    const order = await Order.findByPk(req.params.id);
-    if (!order) return res.status(404).json({ message: 'سفارش یافت نشد.' });
-
-    const distributor = await Distributor.findByPk(distributor_id);
-    if (!distributor) return res.status(404).json({ message: 'توزیع‌کننده یافت نشد.' });
-
-    await order.update({ distributor_id, status: 'out_for_delivery' });
+    const distributorId = Number(req.body.distributor_id);
+    if (!Number.isSafeInteger(distributorId) || distributorId < 1) {
+      return res.status(400).json({ message: 'توزیع‌کننده معتبر انتخاب کنید.' });
+    }
+    const order = await orderService.assignDistributor(req.params.id, distributorId);
     return res.json(order);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(err.statusCode || 500).json({ message: err.statusCode ? err.message : 'خطای سرور' });
   }
 }
-
 module.exports = { create, getAll, getOne, updateStatus, assignDistributor, convertToOrder };

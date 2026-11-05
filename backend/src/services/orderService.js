@@ -10,7 +10,7 @@
  * the correct HTTP status without embedding HTTP knowledge here.
  */
 
-const { sequelize, Order, OrderItem, Product, Customer } = require('../models');
+const { sequelize, Order, OrderItem, Product, Customer, Distributor } = require('../models');
 const { generateOrderNumber } = require('../utils/numberGenerator');
 const { isSalesTransitionAllowed, salesCancelRestoresStock } = require('../utils/orderStateMachine');
 const logger = require('../utils/logger');
@@ -169,12 +169,11 @@ async function convertToOrder(orderId) {
  * @param {number|null} callerDistributorId  — null means no ownership restriction
  * @returns {Promise<Order>}  fully loaded updated Order instance
  */
-async function updateOrderStatus(orderId, newStatus, callerDistributorId) {
-  const t = await sequelize.transaction();
-  try {
+async function updateOrderStatus(orderId, newStatus, callerDistributorId = null) {
+  return sequelize.transaction(async (t) => {
     const order = await Order.findByPk(orderId, {
-      include: [{ model: OrderItem, as: 'items' }],
       transaction: t,
+      lock: t.LOCK.UPDATE,
     });
     if (!order) {
       const err = new Error('سفارش یافت نشد.');
@@ -205,33 +204,55 @@ async function updateOrderStatus(orderId, newStatus, callerDistributorId) {
     if (newStatus === 'delivered') updates.delivery_date = new Date();
 
     if (newStatus === 'cancelled' && salesCancelRestoresStock(order.status) && !order.stock_compensated) {
-      for (const item of order.items) {
+      const items = await OrderItem.findAll({
+        where: { order_id: order.id }, transaction: t,
+        order: [['product_id', 'ASC'], ['id', 'ASC']],
+      });
+      for (const item of items) {
         const product = await Product.findByPk(item.product_id, { transaction: t, lock: t.LOCK.UPDATE });
-        if (product) {
-          await product.update(
-            { stock_quantity: product.stock_quantity + item.quantity },
-            { transaction: t }
-          );
+        if (!product) {
+          const err = new Error('کالای سفارش یافت نشد؛ لغو انجام نشد.');
+          err.statusCode = 409;
+          throw err;
         }
+        await product.update(
+          { stock_quantity: product.stock_quantity + item.quantity },
+          { transaction: t }
+        );
       }
       updates.stock_compensated = true;
     }
 
     await order.update(updates, { transaction: t });
-    await t.commit();
-
     return Order.findByPk(order.id, {
-      include: [{ model: OrderItem, as: 'items', include: Product }, Customer],
+      include: [{ model: OrderItem, as: 'items' }], transaction: t,
     });
-  } catch (err) {
-    await t.rollback();
-    if (!err.statusCode) {
-      logger.error('orderService.updateOrderStatus error', { error: err.message });
-      err.statusCode = 500;
-      err.message = 'خطای داخلی سرور.';
-    }
-    throw err;
-  }
+  });
 }
 
-module.exports = { createOrder, convertToOrder, updateOrderStatus };
+// Assignment shares the order lock with status updates and never dispatches it.
+async function assignDistributor(orderId, distributorId) {
+  return sequelize.transaction(async (t) => {
+    const order = await Order.findByPk(orderId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!order) {
+      const err = new Error('سفارش یافت نشد.');
+      err.statusCode = 404;
+      throw err;
+    }
+    if (order.is_quote || !salesCancelRestoresStock(order.status)) {
+      const err = new Error('تخصیص توزیع‌کننده به این سفارش مجاز نیست.');
+      err.statusCode = 400;
+      throw err;
+    }
+    const distributor = await Distributor.findByPk(distributorId, { transaction: t });
+    if (!distributor) {
+      const err = new Error('توزیع‌کننده یافت نشد.');
+      err.statusCode = 404;
+      throw err;
+    }
+    await order.update({ distributor_id: distributor.id }, { transaction: t });
+    return order;
+  });
+}
+
+module.exports = { createOrder, convertToOrder, updateOrderStatus, assignDistributor };

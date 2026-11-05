@@ -3,8 +3,7 @@ process.env.JWT_SECRET = 'test_secret';
 const request = require('supertest');
 const app = require('../src/app');
 const { sequelize, Product, Customer, Distributor } = require('../src/models');
-const { seedRoles, createUser } = require('./testUtils');
-const { generateToken } = require('../src/utils/token');
+const { seedRoles, createUser, tokenFor } = require('./testUtils');
 
 let adminToken;
 let product;
@@ -14,7 +13,7 @@ beforeAll(async () => {
   await sequelize.sync({ force: true });
   await seedRoles();
   const admin = await createUser({ roleName: 'admin', email: 'admin-ownership-test@example.test' });
-  adminToken = generateToken(admin);
+  adminToken = tokenFor(admin);
 
   product = await Product.create({ sku: 'P-200', name: 'روغن ۵ لیتری', unit_price: 500000, stock_quantity: 30, reorder_level: 5 });
   customer = await Customer.create({ full_name: 'فروشگاه دوم', phone: '09121111111' });
@@ -27,7 +26,7 @@ afterAll(async () => {
 async function createDistributorWithUser(email) {
   const user = await createUser({ roleName: 'distributor', email });
   const distributor = await Distributor.create({ user_id: user.id, full_name: 'توزیع‌کننده تست', phone: '09122222222' });
-  return { user, distributor, token: generateToken(user) };
+  return { user, distributor, token: tokenFor(user) };
 }
 
 describe('کنترل مالکیت سفارش برای توزیع‌کننده', () => {
@@ -122,7 +121,7 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ status: 'cancelled' });
 
-    expect(secondCancelRes.status).toBe(200);
+    expect(secondCancelRes.status).toBe(400);
 
     const afterSecondCancel = await Product.findByPk(product.id);
     expect(afterSecondCancel.stock_quantity).toBe(afterFirstCancel.stock_quantity);
@@ -141,7 +140,7 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ status: 'cancelled' });
 
-    expect(cancelRes.status).toBe(200);
+    expect(cancelRes.status).toBe(400);
 
     const after = await Product.findByPk(product.id);
     expect(after.stock_quantity).toBe(before.stock_quantity);
