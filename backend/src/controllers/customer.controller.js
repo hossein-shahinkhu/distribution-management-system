@@ -53,7 +53,9 @@ async function create(req, res) {
       credit_limit,
       route_id: route_id || null,
     });
-    return res.status(201).json(customer);
+    const data = customer.toJSON();
+    if (req.user.Role?.name !== 'admin') delete data.credit_limit;
+    return res.status(201).json(data);
   } catch (err) {
     return res.status(500).json({ message: 'خطای سرور' });
   }

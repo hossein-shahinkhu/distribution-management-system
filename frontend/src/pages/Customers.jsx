@@ -11,6 +11,7 @@ import EmptyState from '../components/EmptyState';
 import Pagination from '../components/Pagination';
 import { customersApi } from '../api/customers';
 import { routesApi } from '../api/misc';
+import { useAuth } from '../context/AuthContext';
 
 const EMPTY_FORM = {
   full_name: '', business_name: '', phone: '',
@@ -18,6 +19,8 @@ const EMPTY_FORM = {
 };
 
 export default function Customers() {
+  const { user } = useAuth();
+  const canManageCredit = user?.role === 'admin';
   const [customers, setCustomers]     = useState([]);
   const [pagination, setPagination]   = useState({ page: 1, totalPages: 1 });
   const [search, setSearch]           = useState('');
@@ -93,6 +96,7 @@ export default function Customers() {
     setSaving(true);
     try {
       const payload = { ...form, route_id: form.route_id || null };
+      if (!canManageCredit) delete payload.credit_limit;
       if (editingId) await customersApi.update(editingId, payload);
       else           await customersApi.create(payload);
       setModalOpen(false);
@@ -345,14 +349,14 @@ export default function Customers() {
                 <option key={r.id} value={r.id}>{r.name}</option>
               ))}
             </Select>
-            <Input
+            {canManageCredit && <Input
               label="سقف اعتبار (تومان)"
               type="number"
               min="0"
               value={form.credit_limit}
               onChange={(e) => f({ credit_limit: e.target.value })}
               hint="صفر = بدون محدودیت اعتبار"
-            />
+            />}
           </fieldset>
 
           {/* Error */}
