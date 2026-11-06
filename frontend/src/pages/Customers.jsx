@@ -1,4 +1,7 @@
+import useFinancialRefresh from '../hooks/useFinancialRefresh';
+import { financialError, formatMoney } from '../utils/financial';
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
 import Input from '../components/Input';
@@ -24,36 +27,38 @@ export default function Customers() {
   const [form, setForm]               = useState(EMPTY_FORM);
   const [editingId, setEditingId]     = useState(null);
   const [error, setError]             = useState('');
+  const [saving, setSaving]           = useState(false);
   // map of customerId → { outstanding_balance, credit_limit, available_credit, unpaid_invoices }
   const [creditUsage, setCreditUsage] = useState({});
-  const fetchingCredit                = useRef(new Set());
-
-  function load(page = 1) {
-    setLoading(true);
-    customersApi.getAll({ search, page }).then((r) => {
-      setCustomers(r.data.data);
-      setPagination(r.data.pagination);
-      setLoading(false);
-    });
+  const sequence = useRef(0);
+  const [loadError, setLoadError] = useState('');
+  const [financialErrors, setFinancialErrors] = useState({});
+  async function load(page = 1) {
+    const seq = ++sequence.current;
+    setLoading(true); setLoadError(''); setCreditUsage({}); setFinancialErrors({});
+    try {
+      const r = await customersApi.getAll({ search, page });
+      if (seq !== sequence.current) return;
+      setCustomers(r.data.data); setPagination(r.data.pagination);
+      const rows = r.data.data;
+      const results = await Promise.allSettled(rows.map(c => customersApi.getCreditUsage(c.id)));
+      if (seq !== sequence.current) return;
+      const values = {}, failures = {};
+      results.forEach((result, index) => {
+        const id = rows[index].id;
+        if (result.status === 'fulfilled') values[id] = result.value.data;
+        else failures[id] = financialError(result.reason);
+      });
+      setCreditUsage(values); setFinancialErrors(failures);
+    } catch (err) {
+      if (seq === sequence.current) { setLoadError(financialError(err)); setCustomers([]); }
+    } finally { if (seq === sequence.current) setLoading(false); }
   }
-
+  useFinancialRefresh(() => load(pagination.page));
   useEffect(() => {
-    routesApi.getAll().then((r) => setRoutes(r.data));
+    routesApi.getAll().then(r => setRoutes(r.data)).catch(err => setLoadError(financialError(err)));
+    return () => { sequence.current++; };
   }, []);
-
-  // Fetch credit usage for customers with a credit limit, after the list loads
-  useEffect(() => {
-    customers.forEach((c) => {
-      if (!Number(c.credit_limit) || fetchingCredit.current.has(c.id) || creditUsage[c.id]) return;
-      fetchingCredit.current.add(c.id);
-      customersApi.getCreditUsage(c.id)
-        .then((r) => setCreditUsage((prev) => ({ ...prev, [c.id]: r.data })))
-        .catch(() => {}) // silently ignore — bar stays decorative
-        .finally(() => fetchingCredit.current.delete(c.id));
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customers]);
-
   useEffect(() => {
     const t = setTimeout(() => load(1), 300);
     return () => clearTimeout(t);
@@ -85,6 +90,7 @@ export default function Customers() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setSaving(true);
     try {
       const payload = { ...form, route_id: form.route_id || null };
       if (editingId) await customersApi.update(editingId, payload);
@@ -93,6 +99,8 @@ export default function Customers() {
       load(pagination.page);
     } catch (err) {
       setError(err.response?.data?.message || 'ثبت اطلاعات ناموفق بود.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -109,6 +117,7 @@ export default function Customers() {
 
   return (
     <Layout title="مشتریان">
+      {loadError && <div className="banner banner-error mb-4" role="alert">{loadError}</div>}<Button variant="outline" onClick={() => load(pagination.page)} disabled={loading}>تازه‌سازی مانده‌ها / تلاش مجدد</Button>
       {/* ── Toolbar ── */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="relative min-w-0 flex-1 sm:max-w-xs">
@@ -143,7 +152,7 @@ export default function Customers() {
                 <th>تماس</th>
                 <th className="hidden md:table-cell">شهر / مسیر</th>
                 <th className="hidden lg:table-cell">سقف اعتبار</th>
-                <th className="w-24"></th>
+                <th>مانده حساب</th><th className="w-24"></th>
               </tr>
             </thead>
             <tbody>
@@ -159,7 +168,7 @@ export default function Customers() {
                 ))
               ) : customers.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <EmptyState
                       title="هنوز مشتری‌ای ثبت نشده"
                       description="اولین مشتری خود را اضافه کنید."
@@ -214,7 +223,7 @@ export default function Customers() {
                       </td>
                       {/* Credit limit + usage */}
                       <td className="hidden lg:table-cell">
-                        {creditLimit > 0 ? (
+                        {c.credit_limit == null ? <span className="text-muted">—</span> : creditLimit > 0 ? (
                           <div className="flex flex-col gap-1">
                             <span className="tabular text-sm text-ink">
                               {new Intl.NumberFormat('fa-IR').format(creditLimit)} تومان
@@ -230,11 +239,15 @@ export default function Customers() {
                                 بدهی: {new Intl.NumberFormat('fa-IR').format(Math.round(outstanding))} تومان
                               </span>
                             )}
+                            {usage?.credit_balance > 0 && (
+                              <span className="tabular text-2xs text-success">بستانکاری: {new Intl.NumberFormat('fa-IR').format(usage.credit_balance)} تومان</span>
+                            )}
                           </div>
                         ) : (
-                          <span className="text-xs text-muted">بدون محدودیت</span>
+                          <span className="text-xs text-muted">بدون محدودیت{usage?.credit_balance > 0 && <span className="block text-success">بستانکاری: {new Intl.NumberFormat('fa-IR').format(usage.credit_balance)} تومان</span>}</span>
                         )}
                       </td>
+<td>{financialErrors[c.id] ? <span className="text-danger" role="alert">{financialErrors[c.id]}</span> : usage ? <>{usage.scope === 'salesperson_orders' && <span className="block text-muted">فقط سفارش‌های شما</span>}<span className="block text-danger">بدهی: {formatMoney(usage.outstanding_balance)}</span><span className="block text-success">بستانکاری: {formatMoney(usage.credit_balance)}</span></> : <span>در حال دریافت مانده…</span>}</td>
                       {/* Actions */}
                       <td>
                         <div className="flex items-center gap-2">
@@ -244,6 +257,13 @@ export default function Customers() {
                           >
                             ویرایش
                           </button>
+                          <span className="text-border">|</span>
+                          <Link
+                            to={`/customers/${c.id}/statement`}
+                            className="text-xs font-medium text-[#7C5CBF] transition hover:underline"
+                          >
+                            گردش مالی
+                          </Link>
                           <span className="text-border">|</span>
                           <button
                             onClick={() => handleDelete(c.id)}
@@ -269,6 +289,7 @@ export default function Customers() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editingId ? 'ویرایش مشتری' : 'افزودن مشتری'}
+        saving={saving}
       >
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Personal info */}
@@ -344,8 +365,16 @@ export default function Customers() {
             </div>
           )}
 
-          <Button type="submit" className="w-full">
-            {editingId ? 'ذخیره تغییرات' : 'ثبت مشتری'}
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : (editingId ? 'ذخیره تغییرات' : 'ثبت مشتری')}
           </Button>
         </form>
       </Modal>

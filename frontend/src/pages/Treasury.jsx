@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import useFinancialRefresh from '../hooks/useFinancialRefresh';
+import { financialError } from '../utils/financial';
+import { useEffect, useRef, useState } from 'react';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
 import Input from '../components/Input';
@@ -98,16 +100,22 @@ export default function Treasury() {
   const [modalOpen, setModalOpen]       = useState(false);
   const [form, setForm]                 = useState(EMPTY_FORM);
   const [error, setError]               = useState('');
+  const [saving, setSaving]             = useState(false);
 
+  const [loadError, setLoadError] = useState('');
+  const [referenceError, setReferenceError] = useState('');
+  const sequence = useRef(0);
+  const referenceSequence = useRef(0);
   function load(page = 1) {
-    setLoading(true);
-    treasuryApi
+    const seq = ++sequence.current;
+    setLoading(true); setLoadError('');
+    return treasuryApi
       .getAll({ type: typeFilter || undefined, from: dateFrom || undefined, to: dateTo || undefined, page })
       .then((r) => {
+        if (seq !== sequence.current) return;
         setTransactions(r.data.data);
         setPagination(r.data.pagination);
-        setLoading(false);
-      });
+      }).catch(err => { if (seq === sequence.current) { setTransactions([]); setLoadError(financialError(err)); } }).finally(() => { if (seq === sequence.current) setLoading(false); });
   }
 
   useEffect(() => {
@@ -116,14 +124,16 @@ export default function Treasury() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeFilter, dateFrom, dateTo]);
 
-  useEffect(() => {
-    Promise.all([customersApi.getAll({ limit: 100 }), invoicesApi.getAll()])
-      .then(([c, inv]) => {
-        setCustomers(c.data.data);
-        setInvoices(inv.data);
-      });
-  }, []);
-
+  async function refreshReferences() {
+    const seq = ++referenceSequence.current;
+    setReferenceError('');
+    try {
+      const [c, inv] = await Promise.all([customersApi.getAll({ limit: 100 }), invoicesApi.getAll()]);
+      if (seq === referenceSequence.current) { setCustomers(c.data.data); setInvoices(inv.data); }
+    } catch (err) { if (seq === referenceSequence.current) { setInvoices([]); setReferenceError(financialError(err)); } }
+  }
+  useEffect(() => { refreshReferences(); }, []);
+  useFinancialRefresh(() => { load(pagination.page); refreshReferences(); });
   function openCreate(prefill = {}) {
     setForm({ ...EMPTY_FORM, ...prefill });
     setError('');
@@ -135,13 +145,14 @@ export default function Treasury() {
     return invoices.filter(
       (inv) =>
         inv.Order?.Customer?.id === Number(customerId) &&
-        ['unpaid', 'partial'].includes(inv.payment_status)
+        inv.document_status === 'active' && inv.outstanding_amount > 0
     );
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setSaving(true);
     try {
       await treasuryApi.create({
         ...form,
@@ -151,19 +162,20 @@ export default function Treasury() {
       });
       setModalOpen(false);
       load(pagination.page);
-      invoicesApi.getAll().then((r) => setInvoices(r.data));
+      await refreshReferences();
     } catch (err) {
-      setError(err.response?.data?.message || 'ثبت تراکنش ناموفق بود.');
+      setError(financialError(err));
+      if (err.response?.status === 409) await refreshReferences();
+    } finally {
+      setSaving(false);
     }
   }
 
   async function handleVoid(id) {
     if (!confirm('این تراکنش باطل شود؟')) return;
-    await treasuryApi.void(id);
-    load(pagination.page);
-    invoicesApi.getAll().then((r) => setInvoices(r.data));
+    try { await treasuryApi.void(id); await load(pagination.page); await refreshReferences(); }
+    catch (err) { setLoadError(financialError(err)); }
   }
-
   // Running balance (chronological reverse order)
   const chronological = [...transactions].reverse();
   let runningBalance = 0;
@@ -179,6 +191,7 @@ export default function Treasury() {
 
   return (
     <Layout title="خزانه‌داری">
+      {(loadError || referenceError) && <div className="banner banner-error mb-5" role="alert">{loadError || referenceError}<Button variant="ghost" onClick={() => { load(pagination.page); refreshReferences(); }}>تلاش مجدد</Button></div>}
       {/* ── Balance summary hero ── */}
       {!loading && <BalanceSummary transactions={transactions} />}
       {loading && (
@@ -317,12 +330,12 @@ export default function Treasury() {
       <Pagination page={pagination.page} totalPages={pagination.totalPages} onChange={load} />
 
       {/* ── Create modal ── */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="ثبت تراکنش جدید">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="ثبت تراکنش جدید" saving={saving}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Select
             label="نوع تراکنش"
             value={form.type}
-            onChange={(e) => f({ type: e.target.value, invoice_id: '' })}
+            onChange={(e) => f({ type: e.target.value, invoice_id: '', customer_id: '' })}
           >
             <option value="receipt">دریافت (ورود پول)</option>
             <option value="payment">پرداخت (خروج پول)</option>
@@ -354,7 +367,7 @@ export default function Treasury() {
             onChange={(e) => f({ transaction_date: e.target.value })}
             required
           />
-          <Select
+          {form.type === 'receipt' && <Select
             label="مشتری (اختیاری)"
             value={form.customer_id}
             onChange={(e) => f({ customer_id: e.target.value, invoice_id: '' })}
@@ -363,7 +376,7 @@ export default function Treasury() {
             {customers.map((c) => (
               <option key={c.id} value={c.id}>{c.full_name}</option>
             ))}
-          </Select>
+          </Select>}
           {form.type === 'receipt' && form.customer_id && (
             <Select
               label="اتصال به فاکتور (اختیاری)"
@@ -373,7 +386,7 @@ export default function Treasury() {
               <option value="">بدون اتصال به فاکتور</option>
               {outstandingInvoicesFor(form.customer_id).map((inv) => (
                 <option key={inv.id} value={inv.id}>
-                  {inv.invoice_number} — {formatCurrency(inv.total_amount)}
+                  {inv.invoice_number} — {formatCurrency(inv.outstanding_amount)}
                 </option>
               ))}
             </Select>
@@ -391,7 +404,17 @@ export default function Treasury() {
               {error}
             </div>
           )}
-          <Button type="submit" className="w-full">ثبت تراکنش</Button>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : 'ثبت تراکنش'}
+          </Button>
         </form>
       </Modal>
     </Layout>

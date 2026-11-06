@@ -1,7 +1,9 @@
-const { Op, fn, col, literal, sequelize: seq } = require('sequelize');
+const { getCustomerAccount } = require('../services/customerBalanceService');
+const { amount } = require('../utils/money');
+const { Op, fn, col, literal } = require('sequelize');
 const {
   Order, OrderItem, Product, Distributor, User, Role,
-  TreasuryTransaction, sequelize,
+  TreasuryTransaction, PurchaseInvoice, Supplier, Invoice, Customer, sequelize,
 } = require('../models');
 const logger = require('../utils/logger');
 
@@ -10,6 +12,7 @@ async function salesReport(req, res) {
   try {
     const { from, to } = req.query;
     const where = {};
+    if (req.user.Role?.name === 'salesperson') where.salesperson_id = req.user.id;
     if (from || to) {
       where.order_date = {};
       if (from) where.order_date[Op.gte] = new Date(from);
@@ -218,10 +221,113 @@ async function treasuryBalanceReport(req, res) {
   }
 }
 
+// گزارش خلاصه خرید از تامین‌کنندگان در یک بازه زمانی
+async function purchasingReport(req, res) {
+  try {
+    const { from, to } = req.query;
+    const where = {};
+    if (from || to) {
+      where.issue_date = {};
+      if (from) where.issue_date[Op.gte] = new Date(from);
+      if (to)   where.issue_date[Op.lte] = new Date(to);
+    }
+
+    const invoices = await PurchaseInvoice.findAll({
+      where,
+      attributes: ['supplier_id', 'total_amount', 'payment_status'],
+      include: [{ model: Supplier, attributes: ['id', 'name'] }],
+    });
+
+    // جمع به ازای هر تامین‌کننده
+    const map = {};
+    for (const inv of invoices) {
+      const sid  = inv.supplier_id;
+      const name = inv.Supplier?.name || `#${sid}`;
+      if (!map[sid]) map[sid] = { supplier_id: sid, supplier_name: name, invoice_count: 0, total_amount: 0, paid_amount: 0 };
+      map[sid].invoice_count += 1;
+      map[sid].total_amount  += Number(inv.total_amount);
+      if (inv.payment_status === 'paid') map[sid].paid_amount += Number(inv.total_amount);
+    }
+
+    const result = Object.values(map).map((r) => ({
+      ...r,
+      outstanding_amount: r.total_amount - r.paid_amount,
+    }));
+
+    return res.json(result);
+  } catch (err) {
+    logger.error('report.purchasingReport error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+  }
+}
+
+// نمای کلی — آمار ترکیبی برای داشبورد مدیر
+async function overviewReport(req, res) {
+  try {
+    const now       = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // فروش ماه جاری (سفارش‌های تحویل‌شده)
+    const currentMonthOrders = await Order.findAll({
+      where: { order_date: { [Op.gte]: monthStart }, status: { [Op.ne]: 'cancelled' } },
+      attributes: ['total_amount'],
+    });
+    const monthlySales = currentMonthOrders.reduce((s, o) => s + Number(o.total_amount), 0);
+
+    // خرید ماه جاری
+    const currentMonthPurchases = await PurchaseInvoice.findAll({
+      where: { issue_date: { [Op.gte]: monthStart } },
+      attributes: ['total_amount'],
+    });
+    const monthlyPurchases = currentMonthPurchases.reduce((s, p) => s + Number(p.total_amount), 0);
+
+    // سفارش‌های در انتظار تحویل
+    const pendingDelivery = await Order.count({
+      where: { status: { [Op.in]: ['confirmed', 'processing', 'out_for_delivery'] } },
+    });
+
+    // مانده خزانه (غیرباطل)
+    const txns = await TreasuryTransaction.findAll({
+      where: { is_voided: false },
+      attributes: ['type', 'amount'],
+    });
+    let treasuryBalance = 0;
+    for (const t of txns) {
+      treasuryBalance += t.type === 'receipt' ? Number(t.amount) : -Number(t.amount);
+    }
+
+    // کالاهای کم‌موجود
+    const products = await Product.findAll({ attributes: ['stock_quantity', 'reorder_level'] });
+    const lowStockCount = products.filter((p) => p.stock_quantity <= p.reorder_level).length;
+
+    // مطالبات معوق مشتریان (فاکتورهای پرداخت‌نشده / جزئی)
+    const customers = await Customer.findAll({ attributes: ['id'] });
+    let receivables = 0n;
+    for (const customer of customers) {
+      const { balance } = await getCustomerAccount(customer.id);
+      if (balance > 0n) receivables += balance;
+    }
+    const outstandingReceivables = amount(receivables);
+    return res.json({
+      monthly_sales:         monthlySales,
+      monthly_purchases:     monthlyPurchases,
+      pending_delivery:      pendingDelivery,
+      treasury_balance:      treasuryBalance,
+      low_stock_count:       lowStockCount,
+      outstanding_receivables: outstandingReceivables,
+    });
+  } catch (err) {
+    logger.error('report.overviewReport error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+  }
+}
+
 module.exports = {
   salesReport,
   inventoryReport,
   distributorPerformanceReport,
   commissionsReport,
   treasuryBalanceReport,
+  purchasingReport,
+  overviewReport,
 };

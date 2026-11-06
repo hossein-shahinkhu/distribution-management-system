@@ -15,8 +15,16 @@ const Supplier = require('./supplier.model');
 const PurchaseOrder = require('./purchaseOrder.model');
 const PurchaseOrderItem = require('./purchaseOrderItem.model');
 const PurchaseInvoice = require('./purchaseInvoice.model');
+const SalesCreditNote = require('./salesCreditNote.model');
 
 // ---------- روابط ----------
+Invoice.hasOne(SalesCreditNote, { foreignKey: 'invoice_id', onDelete: 'RESTRICT' });
+SalesCreditNote.belongsTo(Invoice, { foreignKey: 'invoice_id', onDelete: 'RESTRICT' });
+Order.hasOne(SalesCreditNote, { foreignKey: 'order_id', onDelete: 'RESTRICT' });
+SalesCreditNote.belongsTo(Order, { foreignKey: 'order_id', onDelete: 'RESTRICT' });
+Customer.hasMany(SalesCreditNote, { foreignKey: 'customer_id', onDelete: 'RESTRICT' });
+SalesCreditNote.belongsTo(Customer, { foreignKey: 'customer_id', onDelete: 'RESTRICT' });
+SalesCreditNote.belongsTo(User, { foreignKey: 'created_by', as: 'creator', onDelete: 'RESTRICT' });
 
 // Role <-> User (یک نقش، چند کاربر)
 Role.hasMany(User, { foreignKey: 'role_id' });
@@ -96,6 +104,7 @@ PurchaseInvoice.hasMany(TreasuryTransaction, { foreignKey: 'purchase_invoice_id'
 TreasuryTransaction.belongsTo(PurchaseInvoice, { foreignKey: 'purchase_invoice_id' });
 
 module.exports = {
+  SalesCreditNote,
   sequelize,
   Role,
   User,

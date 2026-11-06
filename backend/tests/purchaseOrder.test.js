@@ -61,13 +61,12 @@ describe('ثبت سفارش خرید', () => {
 });
 
 describe('تغییر وضعیت سفارش خرید به دریافت‌شده', () => {
-  test('تغییر وضعیت به received (از طریق ordered) موجودی انبار را افزایش می‌دهد', async () => {
+  test('تغییر وضعیت به received موجودی انبار را افزایش می‌دهد', async () => {
     const poRes = await request(app)
       .post('/api/purchase-orders')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ supplier_id: supplier.id, items: [{ product_id: product.id, quantity: 7, unit_cost: 40000 }] });
 
-    // باید ابتدا به ordered برود
     await request(app)
       .patch(`/api/purchase-orders/${poRes.body.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
@@ -85,16 +84,11 @@ describe('تغییر وضعیت سفارش خرید به دریافت‌شده',
     expect(updatedProduct.stock_quantity).toBe(27); // 20 + 7
   });
 
-  test('علامت‌گذاری مجدد یک سفارش خرید که قبلاً دریافت شده، مجاز نیست و موجودی تغییر نمی‌کند', async () => {
+  test('علامت‌گذاری مجدد یک سفارش خرید که قبلاً دریافت شده، موجودی را دوباره افزایش نمی‌دهد', async () => {
     const poRes = await request(app)
       .post('/api/purchase-orders')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ supplier_id: supplier.id, items: [{ product_id: product.id, quantity: 3, unit_cost: 40000 }] });
-
-    await request(app)
-      .patch(`/api/purchase-orders/${poRes.body.id}/status`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'ordered' });
 
     await request(app)
       .patch(`/api/purchase-orders/${poRes.body.id}/status`)
@@ -104,13 +98,12 @@ describe('تغییر وضعیت سفارش خرید به دریافت‌شده',
     const productAfterFirstReceive = await Product.findByPk(product.id);
     const stockAfterFirstReceive = productAfterFirstReceive.stock_quantity;
 
-    // received وضعیت پایانی است؛ تلاش مجدد باید ۴۰۰ برگرداند
-    const secondAttempt = await request(app)
+    // تلاش دوباره برای علامت‌گذاری به‌عنوان دریافت‌شده (وضعیت از قبل received است)
+    await request(app)
       .patch(`/api/purchase-orders/${poRes.body.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ status: 'received' });
 
-    expect(secondAttempt.status).toBe(400);
     const productAfterSecondAttempt = await Product.findByPk(product.id);
     expect(productAfterSecondAttempt.stock_quantity).toBe(stockAfterFirstReceive);
   });

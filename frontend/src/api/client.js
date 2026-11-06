@@ -1,7 +1,9 @@
 import axios from 'axios';
+import { FINANCIAL_CHANGE } from '../utils/financial';
 
 const client = axios.create({
   baseURL: '/api',
+  timeout: 20000,
 });
 
 client.interceptors.request.use((config) => {
@@ -13,7 +15,13 @@ client.interceptors.request.use((config) => {
 });
 
 client.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (['post', 'put', 'patch', 'delete'].includes(response.config.method) &&
+        /\/(treasury|invoices|orders|customers)(\/|$)/.test(response.config.url || '')) {
+      window.dispatchEvent(new Event(FINANCIAL_CHANGE));
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('dms_token');

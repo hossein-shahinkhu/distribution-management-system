@@ -2,6 +2,10 @@ const { body } = require('express-validator');
 
 const createInvoiceRules = [
   body('order_id').isInt({ min: 1 }).withMessage('شناسه سفارش معتبر نیست.'),
+  body('tax_rate')
+    .optional()
+    .isFloat({ min: 0, max: 100 })
+    .withMessage('درصد مالیات باید بین ۰ تا ۱۰۰ باشد.'),
 ];
 
 const updatePaymentStatusRules = [

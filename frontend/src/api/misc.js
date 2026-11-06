@@ -1,9 +1,10 @@
 import client from './client';
 
 export const invoicesApi = {
-  getAll: () => client.get('/invoices'),
+  getAll: (params = {}) => client.get('/invoices', { params }),
   getOne: (id) => client.get(`/invoices/${id}`),
-  createFromOrder: (order_id) => client.post('/invoices', { order_id }),
+  createFromOrder: (order_id, tax_rate) =>
+    client.post('/invoices', { order_id, ...(tax_rate !== undefined ? { tax_rate } : {}) }),
   updatePaymentStatus: (id, payment_status) =>
     client.patch(`/invoices/${id}/payment-status`, { payment_status }),
 };
@@ -21,6 +22,8 @@ export const reportsApi = {
   distributorPerformance: () => client.get('/reports/distributor-performance'),
   commissions: (params) => client.get('/reports/commissions', { params }),
   treasuryBalance: (params) => client.get('/reports/treasury-balance', { params }),
+  purchasing: (params) => client.get('/reports/purchasing', { params }),
+  overview: () => client.get('/reports/overview'),
 };
 
 export const routesApi = {

@@ -7,6 +7,7 @@ const { createSupplierRules, updateSupplierRules } = require('../validators/supp
 
 router.get('/', authenticate, authorize('admin', 'warehouse_keeper'), ctrl.getAll);
 router.get('/:id', authenticate, authorize('admin', 'warehouse_keeper'), ctrl.getOne);
+router.get('/:id/statement', authenticate, authorize('admin', 'warehouse_keeper'), ctrl.getStatement);
 router.post('/', authenticate, authorize('admin', 'warehouse_keeper'), createSupplierRules, validate, ctrl.create);
 router.put('/:id', authenticate, authorize('admin', 'warehouse_keeper'), updateSupplierRules, validate, ctrl.update);
 router.delete('/:id', authenticate, authorize('admin', 'warehouse_keeper'), ctrl.remove);

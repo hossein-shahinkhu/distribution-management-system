@@ -1,10 +1,9 @@
+const { getCustomerAccount, publicEntry } = require('../services/customerBalanceService');
+const { cents, amount } = require('../utils/money');
+const { Customer, Order } = require('../models');
 const { Op } = require('sequelize');
-const { Customer, Invoice, Order, TreasuryTransaction } = require('../models');
 const { caseInsensitiveLike, parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
 const logger = require('../utils/logger');
-
-// فیلدهای مجاز برای ایجاد و ویرایش مشتری (allowlist)
-const ALLOWED_FIELDS = ['full_name', 'business_name', 'phone', 'address', 'city', 'credit_limit', 'route_id'];
 
 async function getAll(req, res) {
   try {
@@ -14,17 +13,16 @@ async function getAll(req, res) {
     const where = {};
     if (search) {
       where[Op.or] = [
-        { full_name:     { [caseInsensitiveLike()]: `%${search}%` } },
+        { full_name: { [caseInsensitiveLike()]: `%${search}%` } },
         { business_name: { [caseInsensitiveLike()]: `%${search}%` } },
-        { phone:         { [caseInsensitiveLike()]: `%${search}%` } },
+        { phone: { [caseInsensitiveLike()]: `%${search}%` } },
       ];
     }
 
     const result = await Customer.findAndCountAll({ where, order: [['id', 'DESC']], limit, offset });
-    return res.json(buildPaginatedResponse(result, page, limit));
+    return res.json(buildPaginatedResponse({ ...result, rows: result.rows.map(c => { const data = c.toJSON(); if (req.user.Role?.name !== 'admin') delete data.credit_limit; return data; }) }, page, limit));
   } catch (err) {
-    logger.error('customer.getAll error', { error: err.message });
-    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -32,10 +30,11 @@ async function getOne(req, res) {
   try {
     const customer = await Customer.findByPk(req.params.id);
     if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
-    return res.json(customer);
+    const data = customer.toJSON();
+    if (req.user.Role?.name !== 'admin') delete data.credit_limit;
+    return res.json(data);
   } catch (err) {
-    logger.error('customer.getOne error', { error: err.message });
-    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -56,8 +55,7 @@ async function create(req, res) {
     });
     return res.status(201).json(customer);
   } catch (err) {
-    logger.error('customer.create error', { error: err.message });
-    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -65,19 +63,12 @@ async function update(req, res) {
   try {
     const customer = await Customer.findByPk(req.params.id);
     if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
-
-    // Allowlist — از req.body فقط فیلدهای مجاز استخراج می‌شوند
-    const updates = {};
-    for (const field of ALLOWED_FIELDS) {
-      if (req.body[field] !== undefined) updates[field] = req.body[field];
-    }
-    if (updates.route_id === '') updates.route_id = null;
-
-    await customer.update(updates);
-    return res.json(customer);
+    await customer.update(req.body);
+    const data = customer.toJSON();
+    if (req.user.Role?.name !== 'admin') delete data.credit_limit;
+    return res.json(data);
   } catch (err) {
-    logger.error('customer.update error', { error: err.message });
-    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -88,71 +79,27 @@ async function remove(req, res) {
     await customer.destroy();
     return res.json({ message: 'مشتری حذف شد.' });
   } catch (err) {
-    logger.error('customer.remove error', { error: err.message });
-    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
-// TASK-06: مجموع بدهی فعال مشتری
-// مانده بدهی = مجموع مبلغ فاکتورهای پرداخت‌نشده/جزئی
-//              منهای مجموع دریافت‌های غیرباطل مرتبط با آن فاکتورها
+// Account balance is derived from invoices, posted credits and actual receipts.
 async function getCreditUsage(req, res) {
   try {
     const customer = await Customer.findByPk(req.params.id);
     if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
-
-    // فاکتورهای پرداخت‌نشده یا جزئی برای سفارش‌های این مشتری
-    const unpaidInvoices = await Invoice.findAll({
-      where: { payment_status: { [Op.in]: ['unpaid', 'partial'] } },
-      include: [{
-        model: Order,
-        where: { customer_id: customer.id },
-        attributes: [],
-      }],
-      attributes: ['id', 'total_amount'],
-    });
-
-    if (unpaidInvoices.length === 0) {
-      return res.json({
-        customer_id:         customer.id,
-        credit_limit:        Number(customer.credit_limit),
-        outstanding_balance: 0,
-        available_credit:    Number(customer.credit_limit),
-        unpaid_invoices:     0,
-      });
-    }
-
-    const invoiceIds = unpaidInvoices.map((inv) => inv.id);
-
-    // جمع دریافت‌های غیرباطل مرتبط با این فاکتورها
-    const receipts = await TreasuryTransaction.findAll({
-      where: {
-        invoice_id: { [Op.in]: invoiceIds },
-        type:       'receipt',
-        is_voided:  false,
-      },
-      attributes: ['invoice_id', 'amount'],
-    });
-
-    const paidPerInvoice = {};
-    for (const r of receipts) {
-      paidPerInvoice[r.invoice_id] = (paidPerInvoice[r.invoice_id] || 0) + Number(r.amount);
-    }
-
-    // مانده واقعی هر فاکتور = مبلغ کل - دریافت‌شده
-    const outstandingBalance = unpaidInvoices.reduce((sum, inv) => {
-      const paid = paidPerInvoice[inv.id] || 0;
-      return sum + Math.max(0, Number(inv.total_amount) - paid);
-    }, 0);
-
-    const creditLimit = Number(customer.credit_limit);
-
+    if (req.user.Role?.name === 'salesperson' && !(await Order.findOne({ where: { customer_id: customer.id, salesperson_id: req.user.id } }))) return res.status(404).json({ message: 'مشتری یافت نشد.' });
+    const { balance, unpaidCount } = await getCustomerAccount(customer.id, { salespersonId: req.user.Role?.name === 'salesperson' ? req.user.id : undefined });
+    const limit = cents(customer.credit_limit);
     return res.json({
-      customer_id:         customer.id,
-      credit_limit:        creditLimit,
-      outstanding_balance: outstandingBalance,
-      available_credit:    creditLimit > 0 ? Math.max(0, creditLimit - outstandingBalance) : null,
-      unpaid_invoices:     unpaidInvoices.length,
+      scope: req.user.Role?.name === 'salesperson' ? 'salesperson_orders' : 'customer',
+      credit_limit: req.user.Role?.name === 'admin' ? amount(limit) : null,
+      outstanding_balance: amount(balance > 0n ? balance : 0n),
+      credit_balance: amount(balance < 0n ? -balance : 0n),
+      account_balance: amount(balance),
+      available_credit: req.user.Role?.name === 'admin' ? amount(limit - balance) : null,
+      unpaid_invoices: unpaidCount,
+      unpaid_invoice_count: unpaidCount,
     });
   } catch (err) {
     logger.error('customer.getCreditUsage error', { error: err.message });
@@ -160,4 +107,39 @@ async function getCreditUsage(req, res) {
   }
 }
 
-module.exports = { getAll, getOne, create, update, remove, getCreditUsage };
+async function getStatement(req, res) {
+  try {
+    const customer = await Customer.findByPk(req.params.id);
+    if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
+    const { from, to } = req.query;
+    const start = from ? new Date(from) : null;
+    const end = to ? new Date(to) : null;
+    // Date-only values represent UTC calendar days; explicit timestamps stay exact.
+    if (end && /^\d{4}-\d{2}-\d{2}$/.test(to)) end.setUTCHours(23, 59, 59, 999);
+    if ((start && !Number.isFinite(start.getTime())) || (end && !Number.isFinite(end.getTime())) ||
+        (start && end && start > end)) return res.status(400).json({ message: 'بازه تاریخ نامعتبر است.' });
+    if (req.user.Role?.name === 'salesperson' && !(await Order.findOne({ where: { customer_id: customer.id, salesperson_id: req.user.id } }))) return res.status(404).json({ message: 'مشتری یافت نشد.' });
+    const { entries } = await getCustomerAccount(customer.id, { salespersonId: req.user.Role?.name === 'salesperson' ? req.user.id : undefined });
+    let opening = 0n;
+    let balance = 0n;
+    const result = [];
+    for (const e of entries) {
+      const date = new Date(e.date);
+      if (end && date > end) continue;
+      balance += e.debitCents - e.creditCents;
+      if (start && date < start) opening = balance;
+      else result.push(publicEntry(e, balance));
+    }
+    return res.json({
+      scope: req.user.Role?.name === 'salesperson' ? 'salesperson_orders' : 'customer',
+      customer: { id: customer.id, full_name: customer.full_name, credit_limit: req.user.Role?.name === 'admin' ? amount(cents(customer.credit_limit)) : null },
+      opening_balance: amount(opening), entries: result, closing_balance: amount(balance),
+      outstanding_balance: amount(balance > 0n ? balance : 0n),
+      credit_balance: amount(balance < 0n ? -balance : 0n),
+    });
+  } catch (err) {
+    logger.error('customer.getStatement error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+  }
+}
+module.exports = { getAll, getOne, create, update, remove, getCreditUsage, getStatement };

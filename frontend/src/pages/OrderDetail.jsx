@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import useFinancialRefresh from '../hooks/useFinancialRefresh';
+import { documentLabels, settlementLabels, financialError } from '../utils/financial';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
+import Input from '../components/Input';
 import Select from '../components/Select';
 import StatusBadge from '../components/StatusBadge';
 import { ordersApi } from '../api/orders';
@@ -9,6 +12,7 @@ import { distributorsApi, invoicesApi } from '../api/misc';
 import { useAuth } from '../context/AuthContext';
 
 function formatCurrency(value) {
+  if (value == null) return '—';
   return new Intl.NumberFormat('fa-IR').format(value) + ' تومان';
 }
 
@@ -27,7 +31,7 @@ const ALLOWED_NEXT = {
   pending:          ['confirmed', 'cancelled'],
   confirmed:        ['processing', 'cancelled'],
   processing:       ['out_for_delivery', 'cancelled'],
-  out_for_delivery: ['delivered', 'cancelled'],
+  out_for_delivery: ['delivered'],
   delivered:        [],
   cancelled:        [],
   quote:            [],
@@ -101,70 +105,54 @@ export default function OrderDetail() {
   const [order, setOrder] = useState(null);
   const [distributors, setDistributors] = useState([]);
   const [selectedDistributor, setSelectedDistributor] = useState('');
+  const [taxRate, setTaxRate] = useState('9');
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('success');
   const [loading, setLoading] = useState(true);
 
-  function load() {
-    ordersApi.getOne(id).then((r) => {
-      setOrder(r.data);
-      setSelectedDistributor(r.data.distributor_id || '');
-      setLoading(false);
-    });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const sequence = useRef(0);
+  async function load() {
+    const seq = ++sequence.current;
+    setLoading(true); setError('');
+    try {
+      const r = await ordersApi.getOne(id);
+      if (seq === sequence.current) { setOrder(r.data); setSelectedDistributor(r.data.distributor_id || ''); }
+    } catch (err) {
+      if (seq === sequence.current) { setError(financialError(err)); setOrder(null); }
+    } finally { if (seq === sequence.current) setLoading(false); }
   }
-
-  useEffect(load, [id]);
-
+  useEffect(() => { load(); return () => { sequence.current++; }; }, [id]);
+  useFinancialRefresh(load);
   useEffect(() => {
-    if (user?.role === 'admin') {
-      distributorsApi.getAll().then((r) => setDistributors(r.data));
-    }
+    if (user?.role === 'admin') distributorsApi.getAll().then(r => setDistributors(r.data)).catch(err => setError(financialError(err)));
   }, [user]);
-
-  async function handleStatusChange(status) {
-    if (!status || status === order.status) return;
+  async function perform(action, success) {
+    if (busy) return;
+    setBusy(true); setMessage('');
     try {
-      await ordersApi.updateStatus(id, status);
-      setMessage('وضعیت سفارش به‌روزرسانی شد.');
-      setMessageType('success');
-      load();
+      await action(); setMessage(success); setMessageType('success'); await load();
     } catch (err) {
-      setMessage(err.response?.data?.message || 'به‌روزرسانی وضعیت ناموفق بود.');
-      setMessageType('error');
-    }
+      setMessage(financialError(err)); setMessageType('error');
+      if (err.response?.status === 409) await load();
+    } finally { setBusy(false); }
   }
-
-  async function handleAssignDistributor() {
+  function handleStatusChange(status) {
+    if (!status || status === order.status || busy) return;
+    if (status === 'cancelled' && !window.confirm('تأیید می‌کنید کالا از انبار خارج نشده است؟ لغو، موجودی را برمی‌گرداند و سند اعتبار فاکتور را ثبت می‌کند. وجهی بازپرداخت نمی‌شود.')) return;
+    return perform(() => ordersApi.updateStatus(id, status, status === 'cancelled' ? { confirmed_not_dispatched: true } : {}), 'وضعیت سفارش ثبت شد.');
+  }
+  function handleAssignDistributor() {
     if (!selectedDistributor) return;
-    await ordersApi.assignDistributor(id, Number(selectedDistributor));
-    setMessage('توزیع‌کننده با موفقیت تخصیص یافت.');
-    setMessageType('success');
-    load();
+    return perform(() => ordersApi.assignDistributor(id, Number(selectedDistributor)), 'توزیع‌کننده تخصیص یافت؛ وضعیت سفارش تغییر نکرد.');
   }
-
-  async function handleCreateInvoice() {
-    try {
-      await invoicesApi.createFromOrder(order.id);
-      setMessage('فاکتور با موفقیت صادر شد.');
-      setMessageType('success');
-    } catch (err) {
-      setMessage(err.response?.data?.message || 'صدور فاکتور ناموفق بود.');
-      setMessageType('error');
-    }
+  function handleCreateInvoice() {
+    return perform(() => invoicesApi.createFromOrder(order.id, taxRate !== '' ? Number(taxRate) : undefined), 'فاکتور صادر شد.');
   }
-
-  async function handleConvertToOrder() {
-    try {
-      await ordersApi.convertToOrder(order.id);
-      setMessage('پیش‌فاکتور با موفقیت به سفارش قطعی تبدیل شد.');
-      setMessageType('success');
-      load();
-    } catch (err) {
-      setMessage(err.response?.data?.message || 'تبدیل به سفارش قطعی ناموفق بود.');
-      setMessageType('error');
-    }
+  function handleConvertToOrder() {
+    return perform(() => ordersApi.convertToOrder(order.id), 'پیش‌فاکتور به سفارش قطعی تبدیل شد.');
   }
-
   const pageTitle = loading ? 'جزئیات سفارش' : `سفارش ${order?.order_number}`;
 
   if (loading) {
@@ -179,8 +167,10 @@ export default function OrderDetail() {
     );
   }
 
+  if (!order) return <Layout title={pageTitle}><div className="banner banner-error mb-5" role="alert">{error || 'سفارش یافت نشد.'}</div><Button onClick={load}>تلاش مجدد</Button></Layout>;
   return (
     <Layout title={pageTitle}>
+      {error && <div className="banner banner-error mb-5" role="alert">{error}<Button variant="ghost" onClick={load}>تلاش مجدد</Button></div>}
       {/* ── Back link ── */}
       <div className="mb-5 flex items-center justify-between">
         <Link
@@ -193,7 +183,7 @@ export default function OrderDetail() {
           بازگشت به سفارش‌ها
         </Link>
         {/* Quote badge */}
-        {order.is_quote && (
+        {order.can_view_financials && order.is_quote && ['admin', 'salesperson'].includes(user?.role) && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -254,12 +244,41 @@ export default function OrderDetail() {
               </table>
             </div>
             {/* Total row */}
-            <div className="flex items-center justify-between border-t border-border bg-navy-50/50 px-5 py-4">
-              <span className="text-sm font-medium text-muted">مجموع کل سفارش</span>
-              <span className="tabular text-base font-bold text-ink">{formatCurrency(order.total_amount)}</span>
+            <div className="flex flex-col gap-1 border-t border-border bg-navy-50/50 px-5 py-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted">جمع کالا (بدون مالیات)</span>
+                <span className="tabular font-medium text-ink">{formatCurrency(order.Invoice?.subtotal ?? order.total_amount)}</span>
+              </div>
+              {order.Invoice && (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted">
+                      مالیات ({order.Invoice.tax_rate != null ? Number(order.Invoice.tax_rate) : '—'}٪)
+                    </span>
+                    <span className="tabular text-muted">{formatCurrency(order.Invoice.tax_amount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-base">
+                    <span className="font-semibold text-ink">مجموع فاکتور</span>
+                    <span className="tabular font-bold text-ink">{formatCurrency(order.Invoice.total_amount)}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
+          {order.Invoice && <div className="card rounded-2xl p-5">
+            <h3 className="mb-3 font-bold">وضعیت مالی سفارش</h3>
+            <InfoRow label="شماره فاکتور" value={order.Invoice.invoice_number} />
+            <InfoRow label="وضعیت سند" value={documentLabels[order.Invoice.document_status]} />
+            <InfoRow label="تسویه" value={settlementLabels[order.Invoice.settlement_status]} />
+            <InfoRow label="مبلغ اصلی" value={formatCurrency(order.Invoice.original_total)} />
+            <InfoRow label="دریافت واقعی" value={formatCurrency(order.Invoice.received_amount)} />
+            <InfoRow label="اعتبار ابطال" value={formatCurrency(order.Invoice.credited_total)} />
+            <InfoRow label="شماره سند اعتبار" value={order.Invoice.SalesCreditNote?.credit_number} />
+            <InfoRow label="خالص فروش" value={formatCurrency(order.Invoice.net_total)} />
+            <InfoRow label="مانده بدهی فاکتور" value={formatCurrency(order.Invoice.outstanding_amount)} />
+            <InfoRow label="مازاد دریافت فاکتور" value={formatCurrency(order.Invoice.credit_balance)} />
+          </div>}
           {/* Customer info */}
           <div className="card rounded-2xl p-5">
             <div className="mb-3 flex items-center gap-2.5">
@@ -289,7 +308,7 @@ export default function OrderDetail() {
         {/* ── Sidebar actions ── */}
         <div className="space-y-4">
           {/* Quote conversion */}
-          {order.is_quote && (
+          {order.can_view_financials && order.is_quote && ['admin', 'salesperson'].includes(user?.role) && (
             <div className="card rounded-2xl p-5">
               <div className="mb-3 flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100">
@@ -302,7 +321,7 @@ export default function OrderDetail() {
               <p className="mb-4 text-sm text-muted">
                 موجودی انبار برای این پیش‌فاکتور هنوز کسر نشده است.
               </p>
-              <Button className="w-full" onClick={handleConvertToOrder}>
+              <Button className="w-full" disabled={busy} onClick={handleConvertToOrder}>
                 تبدیل به سفارش قطعی
               </Button>
             </div>
@@ -311,10 +330,10 @@ export default function OrderDetail() {
           {/* Status change */}
           {(() => {
             const allowed = ALLOWED_NEXT[order.status] ?? [];
-            // توزیع‌کننده فقط delivered می‌تواند انتخاب کند
+            // Match the backend: an assigned distributor can advance, but cannot cancel.
             const roleFiltered = user?.role === 'distributor'
-              ? allowed.filter((s) => s === 'delivered')
-              : allowed;
+              ? allowed.filter((s) => s !== 'cancelled')
+              : ['admin', 'warehouse_keeper'].includes(user?.role) ? allowed : [];
             if (roleFiltered.length === 0) return null;
             return (
               <div className="card rounded-2xl p-5">
@@ -323,7 +342,7 @@ export default function OrderDetail() {
                   {roleFiltered.map((s) => (
                     <button
                       key={s}
-                      onClick={() => handleStatusChange(s)}
+                      disabled={busy} onClick={() => handleStatusChange(s)}
                       className={`w-full rounded-xl border px-3 py-2.5 text-sm font-medium transition text-right
                         ${s === 'cancelled'
                           ? 'border-danger/30 bg-danger/5 text-danger hover:bg-danger/10'
@@ -341,7 +360,7 @@ export default function OrderDetail() {
           })()}
 
           {/* Distributor assignment */}
-          {user?.role === 'admin' && (
+          {user?.role === 'admin' && !order.is_quote && !['cancelled', 'delivered'].includes(order.status) && (
             <div className="card rounded-2xl p-5">
               <h3 className="mb-3 font-bold text-ink">تخصیص توزیع‌کننده</h3>
               <Select
@@ -359,7 +378,7 @@ export default function OrderDetail() {
                 className="mt-3 w-full"
                 variant="outline"
                 onClick={handleAssignDistributor}
-                disabled={!selectedDistributor}
+                disabled={!selectedDistributor || busy}
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -370,13 +389,24 @@ export default function OrderDetail() {
           )}
 
           {/* Invoice creation */}
-          {(user?.role === 'admin' || user?.role === 'salesperson') && (
+          {order.can_view_financials && ['admin', 'salesperson'].includes(user?.role) && !order.is_quote && order.status !== 'cancelled' && !order.Invoice && (
             <div className="card rounded-2xl p-5">
               <h3 className="mb-2 font-bold text-ink">صدور فاکتور</h3>
-              <p className="mb-4 text-sm text-muted">
+              <p className="mb-3 text-sm text-muted">
                 فاکتور رسمی برای این سفارش صادر کنید.
               </p>
-              <Button className="w-full" variant="amber" onClick={handleCreateInvoice}>
+              <Input
+                label="درصد مالیات (٪)"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={taxRate}
+                onChange={(e) => setTaxRate(e.target.value)}
+                className="mb-4"
+                hint="پیش‌فرض ۹٪ — برای معاف از مالیات ۰ وارد کنید"
+              />
+              <Button className="w-full" variant="amber" disabled={busy} onClick={handleCreateInvoice}>
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>

@@ -25,6 +25,7 @@ export default function Distributors() {
   const [form, setForm]           = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [error, setError]         = useState('');
+  const [saving, setSaving]       = useState(false);
 
   function load() {
     setLoading(true);
@@ -68,6 +69,7 @@ export default function Distributors() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setSaving(true);
     try {
       const payload = { ...form, user_id: form.user_id || null };
       if (editingId) await distributorsApi.update(editingId, payload);
@@ -76,6 +78,8 @@ export default function Distributors() {
       load();
     } catch (err) {
       setError(err.response?.data?.message || 'ثبت اطلاعات ناموفق بود.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -208,6 +212,7 @@ export default function Distributors() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editingId ? 'ویرایش توزیع‌کننده' : 'افزودن توزیع‌کننده'}
+        saving={saving}
       >
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Personal info */}
@@ -302,8 +307,16 @@ export default function Distributors() {
             </div>
           )}
 
-          <Button type="submit" className="w-full">
-            {editingId ? 'ذخیره تغییرات' : 'ثبت توزیع‌کننده'}
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : (editingId ? 'ذخیره تغییرات' : 'ثبت توزیع‌کننده')}
           </Button>
         </form>
       </Modal>

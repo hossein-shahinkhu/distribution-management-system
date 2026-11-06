@@ -15,6 +15,7 @@ export default function RoutesPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   function load() {
     setLoading(true);
@@ -27,12 +28,19 @@ export default function RoutesPage() {
   function openEdit(r) { setForm({ name: r.name, description: r.description || '' }); setEditingId(r.id); setError(''); setModalOpen(true); }
 
   async function handleSubmit(e) {
-    e.preventDefault(); setError('');
+    e.preventDefault();
+    setError('');
+    setSaving(true);
     try {
       if (editingId) await routesApi.update(editingId, form);
       else await routesApi.create(form);
-      setModalOpen(false); load();
-    } catch (err) { setError(err.response?.data?.message || 'ثبت اطلاعات ناموفق بود.'); }
+      setModalOpen(false);
+      load();
+    } catch (err) {
+      setError(err.response?.data?.message || 'ثبت اطلاعات ناموفق بود.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDelete(id) {
@@ -91,7 +99,7 @@ export default function RoutesPage() {
         </div>
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'ویرایش مسیر' : 'افزودن مسیر'}>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'ویرایش مسیر' : 'افزودن مسیر'} saving={saving}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input label="نام مسیر" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
           <Input label="توضیحات" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
@@ -103,7 +111,17 @@ export default function RoutesPage() {
               {error}
             </div>
           )}
-          <Button type="submit" className="w-full">{editingId ? 'ذخیره تغییرات' : 'ثبت مسیر'}</Button>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : (editingId ? 'ذخیره تغییرات' : 'ثبت مسیر')}
+          </Button>
         </form>
       </Modal>
     </Layout>

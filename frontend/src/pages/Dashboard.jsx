@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 
 function formatCurrency(value) {
+  if (value == null) return '—';
   return new Intl.NumberFormat('fa-IR').format(value) + ' تومان';
 }
 

@@ -45,6 +45,7 @@ export default function PurchaseOrders() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const [supplierId, setSupplierId] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
@@ -83,15 +84,22 @@ export default function PurchaseOrders() {
   function removeItemRow(index) { setItems(items.filter((_, i) => i !== index)); }
 
   async function handleSubmit(e) {
-    e.preventDefault(); setError('');
+    e.preventDefault();
+    setError('');
+    setSaving(true);
     try {
       await purchaseOrdersApi.create({
         supplier_id: supplierId, expected_date: expectedDate || null, notes,
         items: items.filter((it) => it.product_id && it.quantity && it.unit_cost)
           .map((it) => ({ product_id: Number(it.product_id), quantity: Number(it.quantity), unit_cost: Number(it.unit_cost) })),
       });
-      setModalOpen(false); load(pagination.page);
-    } catch (err) { setError(err.response?.data?.message || 'ثبت سفارش خرید ناموفق بود.'); }
+      setModalOpen(false);
+      load(pagination.page);
+    } catch (err) {
+      setError(err.response?.data?.message || 'ثبت سفارش خرید ناموفق بود.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleMarkReceived(id) {
@@ -170,7 +178,7 @@ export default function PurchaseOrders() {
 
       <Pagination page={pagination.page} totalPages={pagination.totalPages} onChange={load} />
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="ثبت سفارش خرید جدید" width="max-w-2xl">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="ثبت سفارش خرید جدید" width="max-w-2xl" saving={saving}>
         <form onSubmit={handleSubmit} className="space-y-5">
           <Select label="تامین‌کننده" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required>
             <option value="">انتخاب تامین‌کننده...</option>
@@ -215,7 +223,17 @@ export default function PurchaseOrders() {
           </div>
 
           <ErrorAlert msg={error} />
-          <Button type="submit" className="w-full">ثبت سفارش خرید</Button>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : 'ثبت سفارش خرید'}
+          </Button>
         </form>
       </Modal>
     </Layout>

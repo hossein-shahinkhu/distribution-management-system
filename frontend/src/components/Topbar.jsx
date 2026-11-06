@@ -40,6 +40,7 @@ export default function Topbar({ title, onMenuClick }) {
   const [showNew, setShowNew]               = useState(false);
   const [message, setMessage]               = useState('');
   const [error, setError]                   = useState('');
+  const [saving, setSaving]                 = useState(false);
   const dropdownRef = useRef(null);
 
   // Close dropdown on outside click
@@ -57,6 +58,7 @@ export default function Topbar({ title, onMenuClick }) {
     e.preventDefault();
     setError('');
     setMessage('');
+    setSaving(true);
     try {
       await authApi.changePassword(currentPassword, newPassword);
       setMessage('رمز عبور با موفقیت تغییر کرد.');
@@ -64,6 +66,8 @@ export default function Topbar({ title, onMenuClick }) {
       setNewPassword('');
     } catch (err) {
       setError(err.response?.data?.message || 'تغییر رمز عبور ناموفق بود.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -192,7 +196,7 @@ export default function Topbar({ title, onMenuClick }) {
       </div>
 
       {/* ── Change password modal ── */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="تغییر رمز عبور">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="تغییر رمز عبور" saving={saving}>
         <form onSubmit={handleChangePassword} className="space-y-4">
           {/* Current password with toggle */}
           <div className="relative">
@@ -268,7 +272,17 @@ export default function Topbar({ title, onMenuClick }) {
             </div>
           )}
 
-          <Button type="submit" className="w-full">ذخیره رمز عبور جدید</Button>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : 'ذخیره رمز عبور جدید'}
+          </Button>
         </form>
       </Modal>
     </header>

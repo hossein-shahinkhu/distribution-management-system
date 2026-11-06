@@ -71,11 +71,11 @@ describe('GET /api/customers/:id/credit-usage — دسترسی', () => {
     expect(res.status).toBe(200);
   });
 
-  test('فروشنده دسترسی دارد', async () => {
+  test('فروشنده بدون سفارش متعلق به خود دسترسی مالی ندارد', async () => {
     const res = await request(app)
       .get(`/api/customers/${customer.id}/credit-usage`)
       .set('Authorization', `Bearer ${salespersonToken}`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(404);
   });
 
   test('انباردار دسترسی ندارد', async () => {
@@ -158,7 +158,10 @@ describe('GET /api/customers/:id/credit-usage — محاسبه', () => {
     const { invoice } = await createOrderWithInvoice(1);
     customer = savedCustomer;
 
-    await invoice.update({ payment_status: 'paid' });
+    const receipt = await request(app).post('/api/treasury')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ type: 'receipt', amount: Number(invoice.total_amount), method: 'cash', invoice_id: invoice.id });
+    expect(receipt.status).toBe(201);
 
     const res = await request(app)
       .get(`/api/customers/${fresh.id}/credit-usage`)

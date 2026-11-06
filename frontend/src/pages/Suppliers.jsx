@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
 import Input from '../components/Input';
@@ -30,6 +31,7 @@ export default function Suppliers() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   function load(page = 1) {
     setLoading(true);
@@ -57,13 +59,20 @@ export default function Suppliers() {
   }
 
   async function handleSubmit(e) {
-    e.preventDefault(); setError('');
+    e.preventDefault();
+    setError('');
+    setSaving(true);
     try {
       const payload = { ...form, payment_terms_days: form.payment_terms_days || null };
       if (editingId) await suppliersApi.update(editingId, payload);
       else await suppliersApi.create(payload);
-      setModalOpen(false); load(pagination.page);
-    } catch (err) { setError(err.response?.data?.message || 'ثبت اطلاعات ناموفق بود.'); }
+      setModalOpen(false);
+      load(pagination.page);
+    } catch (err) {
+      setError(err.response?.data?.message || 'ثبت اطلاعات ناموفق بود.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDeactivate(id) {
@@ -124,6 +133,8 @@ export default function Suppliers() {
                       <div className="flex items-center gap-2">
                         <button onClick={() => openEdit(s)} className="text-xs font-medium text-navy-600 hover:underline">ویرایش</button>
                         <span className="text-border">|</span>
+                        <Link to={`/suppliers/${s.id}/statement`} className="text-xs font-medium text-[#7C5CBF] hover:underline">گردش مالی</Link>
+                        <span className="text-border">|</span>
                         <button onClick={() => handleDeactivate(s.id)} className="text-xs font-medium text-danger hover:underline">غیرفعال</button>
                       </div>
                     </td>
@@ -137,7 +148,7 @@ export default function Suppliers() {
 
       <Pagination page={pagination.page} totalPages={pagination.totalPages} onChange={load} />
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'ویرایش تامین‌کننده' : 'افزودن تامین‌کننده'}>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? 'ویرایش تامین‌کننده' : 'افزودن تامین‌کننده'} saving={saving}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <fieldset className="space-y-4">
             <legend className="mb-1 text-xs font-semibold uppercase tracking-widest text-muted">اطلاعات شرکت</legend>
@@ -156,7 +167,17 @@ export default function Suppliers() {
             <Input label="مهلت پرداخت (روز)" type="number" min="0" value={form.payment_terms_days} onChange={(e) => f({ payment_terms_days: e.target.value })} />
           </fieldset>
           <ErrorAlert message={error} />
-          <Button type="submit" className="w-full">{editingId ? 'ذخیره تغییرات' : 'ثبت تامین‌کننده'}</Button>
+          <Button type="submit" className="w-full" disabled={saving}>
+            {saving ? (
+              <span className="flex items-center gap-2">
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                در حال ذخیره...
+              </span>
+            ) : (editingId ? 'ذخیره تغییرات' : 'ثبت تامین‌کننده')}
+          </Button>
         </form>
       </Modal>
     </Layout>
