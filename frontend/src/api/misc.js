@@ -1,7 +1,7 @@
 import client from './client';
 
 export const invoicesApi = {
-  getAll: () => client.get('/invoices'),
+  getAll: (params = {}) => client.get('/invoices', { params }),
   getOne: (id) => client.get(`/invoices/${id}`),
   createFromOrder: (order_id, tax_rate) =>
     client.post('/invoices', { order_id, ...(tax_rate !== undefined ? { tax_rate } : {}) }),

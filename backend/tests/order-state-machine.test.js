@@ -128,7 +128,7 @@ describe('ماشین وضعیت — گذارهای غیرمجاز', () => {
     const res = await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
     expect(res.status).toBe(400);
   });
 
@@ -137,7 +137,7 @@ describe('ماشین وضعیت — گذارهای غیرمجاز', () => {
     await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
     const res = await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
@@ -171,7 +171,7 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
     const res = await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
     expect(res.status).toBe(200);
     expect((await Product.findByPk(product.id)).stock_quantity).toBe(before);
   });
@@ -185,7 +185,7 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
     const res = await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
     expect(res.status).toBe(200);
     expect((await Product.findByPk(product.id)).stock_quantity).toBe(before);
   });
@@ -199,21 +199,22 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
     await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
     expect((await Product.findByPk(product.id)).stock_quantity).toBe(before);
   });
 
-  test('لغو از out_for_delivery موجودی انبار را بازمی‌گرداند', async () => {
+  test('لغو از out_for_delivery رد می‌شود و موجودی تغییر نمی‌کند', async () => {
     const qty = 4;
     const before = (await Product.findByPk(product.id)).stock_quantity;
     const order = await createOrder(qty);
     await advanceToStatus(order.id, 'out_for_delivery');
 
-    await request(app)
+    const res = await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
-    expect((await Product.findByPk(product.id)).stock_quantity).toBe(before);
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
+    expect(res.status).toBe(400);
+    expect((await Product.findByPk(product.id)).stock_quantity).toBe(before - qty);
   });
 
   test('لغو سفارش تحویل‌شده غیرمجاز است و موجودی تغییر نمی‌کند', async () => {
@@ -225,7 +226,7 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
     const res = await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
     expect(res.status).toBe(400);
     expect((await Product.findByPk(product.id)).stock_quantity).toBe(stockAfterDelivery);
   });
@@ -237,14 +238,14 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
     await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
     const stockAfterCancel = (await Product.findByPk(product.id)).stock_quantity;
 
     // second cancel attempt should be rejected by state machine (cancelled is terminal)
     const res2 = await request(app)
       .patch(`/api/orders/${order.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
     expect(res2.status).toBe(400);
     expect((await Product.findByPk(product.id)).stock_quantity).toBe(stockAfterCancel);
   });

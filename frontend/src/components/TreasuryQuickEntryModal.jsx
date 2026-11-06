@@ -13,7 +13,7 @@ const EMPTY_FORM = {
 };
 
 export default function TreasuryQuickEntryModal({
-  open, onClose, type, invoiceId, purchaseInvoiceId, customerId, onSuccess,
+  open, onClose, type, invoiceId, purchaseInvoiceId, customerId, onSuccess, onConflict,
 }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
@@ -39,6 +39,7 @@ export default function TreasuryQuickEntryModal({
       onSuccess?.();
     } catch (err) {
       setError(err.response?.data?.message || 'ثبت تراکنش ناموفق بود.');
+      if (err.response?.status === 409) onConflict?.();
     } finally {
       setSaving(false);
     }

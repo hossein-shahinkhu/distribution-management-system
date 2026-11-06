@@ -95,7 +95,7 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
     const cancelRes = await request(app)
       .patch(`/api/orders/${orderRes.body.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
 
     expect(cancelRes.status).toBe(200);
 
@@ -112,14 +112,14 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
     await request(app)
       .patch(`/api/orders/${orderRes.body.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
 
     const afterFirstCancel = await Product.findByPk(product.id);
 
     const secondCancelRes = await request(app)
       .patch(`/api/orders/${orderRes.body.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
 
     expect(secondCancelRes.status).toBe(400);
 
@@ -138,7 +138,7 @@ describe('جبران موجودی هنگام لغو سفارش', () => {
     const cancelRes = await request(app)
       .patch(`/api/orders/${quoteRes.body.id}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ status: 'cancelled' });
+      .send({ status: 'cancelled', confirmed_not_dispatched: true });
 
     expect(cancelRes.status).toBe(400);
 

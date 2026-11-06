@@ -1,4 +1,6 @@
-const { Customer, Order, Invoice, TreasuryTransaction } = require('../models');
+const { getCustomerAccount, publicEntry } = require('../services/customerBalanceService');
+const { cents, amount } = require('../utils/money');
+const { Customer, Order } = require('../models');
 const { Op } = require('sequelize');
 const { caseInsensitiveLike, parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
 const logger = require('../utils/logger');
@@ -18,9 +20,9 @@ async function getAll(req, res) {
     }
 
     const result = await Customer.findAndCountAll({ where, order: [['id', 'DESC']], limit, offset });
-    return res.json(buildPaginatedResponse(result, page, limit));
+    return res.json(buildPaginatedResponse({ ...result, rows: result.rows.map(c => { const data = c.toJSON(); if (req.user.Role?.name !== 'admin') delete data.credit_limit; return data; }) }, page, limit));
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -28,9 +30,11 @@ async function getOne(req, res) {
   try {
     const customer = await Customer.findByPk(req.params.id);
     if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
-    return res.json(customer);
+    const data = customer.toJSON();
+    if (req.user.Role?.name !== 'admin') delete data.credit_limit;
+    return res.json(data);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -51,7 +55,7 @@ async function create(req, res) {
     });
     return res.status(201).json(customer);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -60,9 +64,11 @@ async function update(req, res) {
     const customer = await Customer.findByPk(req.params.id);
     if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
     await customer.update(req.body);
-    return res.json(customer);
+    const data = customer.toJSON();
+    if (req.user.Role?.name !== 'admin') delete data.credit_limit;
+    return res.json(data);
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -73,124 +79,67 @@ async function remove(req, res) {
     await customer.destroy();
     return res.json({ message: 'مشتری حذف شد.' });
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
-// وضعیت اعتبار مشتری: مبلغ بدهی جاری بر اساس فاکتورهایی که هنوز به‌طور کامل
-// پرداخت نشده‌اند محاسبه می‌شود. برای هر فاکتور، فقط رسیدهای غیرباطل (is_voided=false)
-// از مبلغ کل فاکتور کم می‌شوند؛ مبلغ کامل فاکتورهای partial حساب نمی‌شود.
+// Account balance is derived from invoices, posted credits and actual receipts.
 async function getCreditUsage(req, res) {
   try {
     const customer = await Customer.findByPk(req.params.id);
     if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
-
-    const invoices = await Invoice.findAll({
-      where: { payment_status: { [Op.ne]: 'paid' } },
-      include: [{ model: Order, where: { customer_id: customer.id }, attributes: [] }],
-    });
-
-    let outstandingBalance = 0;
-    let unpaidInvoiceCount = 0;
-
-    for (const invoice of invoices) {
-      const paidResult = await TreasuryTransaction.sum('amount', {
-        where: { invoice_id: invoice.id, type: 'receipt', is_voided: false },
-      });
-      const paidAmount = Number(paidResult) || 0;
-      const remaining = Number(invoice.total_amount) - paidAmount;
-      if (remaining > 0) {
-        outstandingBalance += remaining;
-        unpaidInvoiceCount += 1;
-      }
-    }
-
-    const creditLimit = Number(customer.credit_limit) || 0;
-
+    if (req.user.Role?.name === 'salesperson' && !(await Order.findOne({ where: { customer_id: customer.id, salesperson_id: req.user.id } }))) return res.status(404).json({ message: 'مشتری یافت نشد.' });
+    const { balance, unpaidCount } = await getCustomerAccount(customer.id, { salespersonId: req.user.Role?.name === 'salesperson' ? req.user.id : undefined });
+    const limit = cents(customer.credit_limit);
     return res.json({
-      credit_limit: creditLimit,
-      outstanding_balance: outstandingBalance,
-      available_credit: creditLimit - outstandingBalance,
-      unpaid_invoices: unpaidInvoiceCount,
+      scope: req.user.Role?.name === 'salesperson' ? 'salesperson_orders' : 'customer',
+      credit_limit: req.user.Role?.name === 'admin' ? amount(limit) : null,
+      outstanding_balance: amount(balance > 0n ? balance : 0n),
+      credit_balance: amount(balance < 0n ? -balance : 0n),
+      account_balance: amount(balance),
+      available_credit: req.user.Role?.name === 'admin' ? amount(limit - balance) : null,
+      unpaid_invoices: unpaidCount,
+      unpaid_invoice_count: unpaidCount,
     });
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    logger.error('customer.getCreditUsage error', { error: err.message });
+    return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
 
-// گردش مالی مشتری: ادغام فاکتورهای فروش (بدهکار) و رسیدهای خزانه (بستانکار)
-// به ترتیب تاریخ، با مانده تجمعی.
 async function getStatement(req, res) {
   try {
     const customer = await Customer.findByPk(req.params.id);
     if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
-
     const { from, to } = req.query;
-
-    // ── بدهکار: فاکتورهای فروش صادرشده برای سفارش‌های این مشتری ──
-    const invoiceWhere = {};
-    if (from || to) {
-      invoiceWhere.issue_date = {};
-      if (from) invoiceWhere.issue_date[Op.gte] = new Date(from);
-      if (to)   invoiceWhere.issue_date[Op.lte] = new Date(to);
+    const start = from ? new Date(from) : null;
+    const end = to ? new Date(to) : null;
+    // Date-only values represent UTC calendar days; explicit timestamps stay exact.
+    if (end && /^\d{4}-\d{2}-\d{2}$/.test(to)) end.setUTCHours(23, 59, 59, 999);
+    if ((start && !Number.isFinite(start.getTime())) || (end && !Number.isFinite(end.getTime())) ||
+        (start && end && start > end)) return res.status(400).json({ message: 'بازه تاریخ نامعتبر است.' });
+    if (req.user.Role?.name === 'salesperson' && !(await Order.findOne({ where: { customer_id: customer.id, salesperson_id: req.user.id } }))) return res.status(404).json({ message: 'مشتری یافت نشد.' });
+    const { entries } = await getCustomerAccount(customer.id, { salespersonId: req.user.Role?.name === 'salesperson' ? req.user.id : undefined });
+    let opening = 0n;
+    let balance = 0n;
+    const result = [];
+    for (const e of entries) {
+      const date = new Date(e.date);
+      if (end && date > end) continue;
+      balance += e.debitCents - e.creditCents;
+      if (start && date < start) opening = balance;
+      else result.push(publicEntry(e, balance));
     }
-    const invoices = await Invoice.findAll({
-      where: invoiceWhere,
-      include: [{ model: Order, where: { customer_id: customer.id }, attributes: ['id'] }],
-      attributes: ['id', 'invoice_number', 'issue_date', 'total_amount'],
-    });
-
-    // ── بستانکار: رسیدهای دریافتی از این مشتری (غیرباطل) ──
-    const receiptWhere = { customer_id: customer.id, type: 'receipt', is_voided: false };
-    if (from || to) {
-      receiptWhere.transaction_date = {};
-      if (from) receiptWhere.transaction_date[Op.gte] = new Date(from);
-      if (to)   receiptWhere.transaction_date[Op.lte] = new Date(to);
-    }
-    const receipts = await TreasuryTransaction.findAll({
-      where: receiptWhere,
-      attributes: ['id', 'reference_number', 'transaction_date', 'amount', 'description'],
-    });
-
-    // ── ادغام و مرتب‌سازی بر اساس تاریخ (صعودی) ──
-    const entries = [
-      ...invoices.map((inv) => ({
-        date:      inv.issue_date,
-        type:      'invoice',
-        reference: inv.invoice_number,
-        debit:     Number(inv.total_amount),
-        credit:    0,
-      })),
-      ...receipts.map((t) => ({
-        date:      t.transaction_date,
-        type:      'receipt',
-        reference: t.reference_number || t.description || `رسید #${t.id}`,
-        debit:     0,
-        credit:    Number(t.amount),
-      })),
-    ].sort((a, b) => new Date(a.date) - new Date(b.date));
-
-    // مانده تجمعی
-    let balance = 0;
-    const entriesWithBalance = entries.map((e) => {
-      balance += e.debit - e.credit;
-      return { ...e, balance };
-    });
-
     return res.json({
-      customer: {
-        id:           customer.id,
-        full_name:    customer.full_name,
-        credit_limit: Number(customer.credit_limit) || 0,
-      },
-      opening_balance: 0,
-      entries:         entriesWithBalance,
-      closing_balance: balance,
+      scope: req.user.Role?.name === 'salesperson' ? 'salesperson_orders' : 'customer',
+      customer: { id: customer.id, full_name: customer.full_name, credit_limit: req.user.Role?.name === 'admin' ? amount(cents(customer.credit_limit)) : null },
+      opening_balance: amount(opening), entries: result, closing_balance: amount(balance),
+      outstanding_balance: amount(balance > 0n ? balance : 0n),
+      credit_balance: amount(balance < 0n ? -balance : 0n),
     });
   } catch (err) {
     logger.error('customer.getStatement error', { error: err.message });
     return res.status(500).json({ message: 'خطای داخلی سرور.' });
   }
 }
-
 module.exports = { getAll, getOne, create, update, remove, getCreditUsage, getStatement };

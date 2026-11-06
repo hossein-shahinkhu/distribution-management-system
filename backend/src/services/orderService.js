@@ -14,6 +14,7 @@ const { sequelize, Order, OrderItem, Product, Customer, Distributor } = require(
 const { generateOrderNumber } = require('../utils/numberGenerator');
 const { isSalesTransitionAllowed, salesCancelRestoresStock } = require('../utils/orderStateMachine');
 const logger = require('../utils/logger');
+const { postCancellationCredit } = require('./salesCreditNoteService');
 
 /**
  * Create a sales order (or quote).
@@ -169,7 +170,7 @@ async function convertToOrder(orderId) {
  * @param {number|null} callerDistributorId  — null means no ownership restriction
  * @returns {Promise<Order>}  fully loaded updated Order instance
  */
-async function updateOrderStatus(orderId, newStatus, callerDistributorId = null) {
+async function updateOrderStatus(orderId, newStatus, callerDistributorId = null, cancellation = {}) {
   return sequelize.transaction(async (t) => {
     const order = await Order.findByPk(orderId, {
       transaction: t,
@@ -201,6 +202,18 @@ async function updateOrderStatus(orderId, newStatus, callerDistributorId = null)
     }
 
     const updates = { status: newStatus };
+    if (newStatus === 'cancelled') {
+      if (!['admin', 'warehouse_keeper'].includes(cancellation.actorRole) || !cancellation.actorId) {
+        const err = new Error('تأیید لغو فقط توسط مدیر یا انباردار مجاز است.');
+        err.statusCode = 403;
+        throw err;
+      }
+      if (cancellation.confirmedNotDispatched !== true) {
+        const err = new Error('تأیید عدم خروج کالا برای لغو الزامی است.');
+        err.statusCode = 400;
+        throw err;
+      }
+    }
     if (newStatus === 'delivered') updates.delivery_date = new Date();
 
     if (newStatus === 'cancelled' && salesCancelRestoresStock(order.status) && !order.stock_compensated) {
@@ -221,6 +234,10 @@ async function updateOrderStatus(orderId, newStatus, callerDistributorId = null)
         );
       }
       updates.stock_compensated = true;
+    }
+
+    if (newStatus === 'cancelled') {
+      await postCancellationCredit(order, cancellation.actorId, t);
     }
 
     await order.update(updates, { transaction: t });

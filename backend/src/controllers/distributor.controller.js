@@ -10,7 +10,7 @@ async function getAll(req, res) {
       include: { model: User, attributes: ['id', 'full_name', 'email'] },
       order: [['id', 'DESC']],
     });
-    return res.json(distributors);
+    return res.json(distributors.map(d => { const data = d.toJSON(); if (req.user.Role?.name !== 'admin') delete data.commission_rate; return data; }));
   } catch (err) {
     logger.error('distributor.getAll error', { error: err.message });
     return res.status(500).json({ message: 'خطای داخلی سرور.' });

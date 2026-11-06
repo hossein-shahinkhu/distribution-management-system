@@ -1,4 +1,7 @@
+const { canReadOrderFinancials, orderView } = require('../utils/financialAccess');
 const orderService = require('../services/orderService');
+const { Invoice, SalesCreditNote } = require('../models');
+const { attachInvoiceFinancials } = require('../services/invoiceFinancialService');
 const { sequelize, Order, OrderItem, Product, Customer, Distributor, User } = require('../models');
 const { Op } = require('sequelize');
 const { caseInsensitiveLike, parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
@@ -94,10 +97,10 @@ async function create(req, res) {
       include: [{ model: OrderItem, as: 'items', include: Product }, Customer],
     });
 
-    return res.status(201).json(fullOrder);
+    return res.status(201).json(orderView(req.user, fullOrder));
   } catch (err) {
     await t.rollback();
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -109,7 +112,7 @@ async function convertToOrder(req, res) {
       include: [{ model: OrderItem, as: 'items' }],
       transaction: t,
     });
-    if (!order) {
+    if (!order || !canReadOrderFinancials(req.user, order)) {
       await t.rollback();
       return res.status(404).json({ message: 'سفارش یافت نشد.' });
     }
@@ -137,10 +140,10 @@ async function convertToOrder(req, res) {
     const fullOrder = await Order.findByPk(order.id, {
       include: [{ model: OrderItem, as: 'items', include: Product }, Customer],
     });
-    return res.json(fullOrder);
+    return res.json(orderView(req.user, fullOrder));
   } catch (err) {
     await t.rollback();
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -150,6 +153,11 @@ async function getAll(req, res) {
     const { page, limit, offset } = parsePagination(req.query);
 
     const where = {};
+    if ((amount_min || amount_max) && !['admin', 'salesperson'].includes(req.user.Role?.name)) {
+      return res.status(403).json({ message: 'فیلتر مالی برای این نقش مجاز نیست.' });
+    }
+    // Financial filters must never reveal prices of unowned orders by inference.
+    if ((amount_min || amount_max) && req.user.Role?.name === 'salesperson') where.salesperson_id = req.user.id;
     if (status) where.status = status;
     if (search) {
       where.order_number = { [caseInsensitiveLike()]: `%${search}%` };
@@ -186,16 +194,16 @@ async function getAll(req, res) {
       distinct: true,
     });
 
-    return res.json(buildPaginatedResponse(result, page, limit));
+    return res.json(buildPaginatedResponse({ ...result, rows: result.rows.map(o => orderView(req.user, o)) }, page, limit));
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
 async function getOne(req, res) {
   try {
     const order = await Order.findByPk(req.params.id, {
-      include: [Customer, Distributor, { model: OrderItem, as: 'items', include: Product }],
+      include: [Customer, Distributor, { model: Invoice, include: [SalesCreditNote] }, { model: OrderItem, as: 'items', include: Product }],
     });
     if (!order) return res.status(404).json({ message: 'سفارش یافت نشد.' });
 
@@ -206,9 +214,11 @@ async function getOne(req, res) {
       }
     }
 
-    return res.json(order);
+    const data = order.toJSON();
+    if (order.Invoice && canReadOrderFinancials(req.user, order)) data.Invoice = (await attachInvoiceFinancials([order.Invoice]))[0];
+    return res.json(orderView(req.user, data));
   } catch (err) {
-    return res.status(500).json({ message: 'خطای سرور', error: err.message });
+    return res.status(500).json({ message: 'خطای سرور' });
   }
 }
 
@@ -220,8 +230,11 @@ async function updateStatus(req, res) {
       if (!ownDistributor) return res.status(403).json({ message: 'شما به این سفارش دسترسی ندارید.' });
       callerDistributorId = ownDistributor.id;
     }
-    const order = await orderService.updateOrderStatus(req.params.id, req.body.status, callerDistributorId);
-    return res.json(order);
+    const order = await orderService.updateOrderStatus(req.params.id, req.body.status, callerDistributorId, {
+      actorId: req.user.id, actorRole: req.user.Role?.name,
+      confirmedNotDispatched: req.body.confirmed_not_dispatched,
+    });
+    return res.json(orderView(req.user, order));
   } catch (err) {
     return res.status(err.statusCode || 500).json({ message: err.statusCode ? err.message : 'خطای سرور' });
   }
@@ -234,7 +247,7 @@ async function assignDistributor(req, res) {
       return res.status(400).json({ message: 'توزیع‌کننده معتبر انتخاب کنید.' });
     }
     const order = await orderService.assignDistributor(req.params.id, distributorId);
-    return res.json(order);
+    return res.json(orderView(req.user, order));
   } catch (err) {
     return res.status(err.statusCode || 500).json({ message: err.statusCode ? err.message : 'خطای سرور' });
   }

@@ -1,3 +1,5 @@
+const { getCustomerAccount } = require('../services/customerBalanceService');
+const { amount } = require('../utils/money');
 const { Op, fn, col, literal } = require('sequelize');
 const {
   Order, OrderItem, Product, Distributor, User, Role,
@@ -10,6 +12,7 @@ async function salesReport(req, res) {
   try {
     const { from, to } = req.query;
     const where = {};
+    if (req.user.Role?.name === 'salesperson') where.salesperson_id = req.user.id;
     if (from || to) {
       where.order_date = {};
       if (from) where.order_date[Op.gte] = new Date(from);
@@ -298,20 +301,13 @@ async function overviewReport(req, res) {
     const lowStockCount = products.filter((p) => p.stock_quantity <= p.reorder_level).length;
 
     // مطالبات معوق مشتریان (فاکتورهای پرداخت‌نشده / جزئی)
-    const unpaidInvoices = await Invoice.findAll({
-      where: { payment_status: { [Op.in]: ['unpaid', 'partial'] } },
-      attributes: ['id', 'total_amount'],
-    });
-    let outstandingReceivables = 0;
-    for (const inv of unpaidInvoices) {
-      const paidResult = await TreasuryTransaction.sum('amount', {
-        where: { invoice_id: inv.id, type: 'receipt', is_voided: false },
-      });
-      const paid = Number(paidResult) || 0;
-      const rem  = Number(inv.total_amount) - paid;
-      if (rem > 0) outstandingReceivables += rem;
+    const customers = await Customer.findAll({ attributes: ['id'] });
+    let receivables = 0n;
+    for (const customer of customers) {
+      const { balance } = await getCustomerAccount(customer.id);
+      if (balance > 0n) receivables += balance;
     }
-
+    const outstandingReceivables = amount(receivables);
     return res.json({
       monthly_sales:         monthlySales,
       monthly_purchases:     monthlyPurchases,

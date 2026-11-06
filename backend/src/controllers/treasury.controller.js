@@ -1,8 +1,10 @@
 const { Op } = require('sequelize');
-const { TreasuryTransaction, Customer, Invoice, PurchaseInvoice, User } = require('../models');
+const { financialDocumentView } = require('../utils/financialAccess');
+const { TreasuryTransaction, Customer, Invoice, PurchaseInvoice, User, Order } = require('../models');
 const { parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
-const { syncInvoicePaymentStatus, syncPurchaseInvoicePaymentStatus } = require('../utils/invoicePaymentSync');
+const { syncPurchaseInvoicePaymentStatus } = require('../utils/invoicePaymentSync');
 const logger = require('../utils/logger');
+const { createSalesReceipt, voidSalesReceipt } = require('../services/salesReceiptService');
 
 const INCLUDE = [
   Customer,
@@ -23,13 +25,22 @@ async function create(req, res) {
       description, customer_id, invoice_id, purchase_invoice_id,
     } = req.body;
 
+    if ((invoice_id && purchase_invoice_id) || (invoice_id && type !== 'receipt') ||
+        (purchase_invoice_id && type !== 'payment')) {
+      return res.status(422).json({ message: 'نوع تراکنش و مرجع فاکتور سازگار نیستند؛ دریافت برای فروش و پرداخت برای خرید است.' });
+    }
+    if (type === 'payment' && customer_id) {
+      return res.status(403).json({ message: 'پرداخت به مشتری از مسیر عمومی مجاز نیست؛ بازپرداخت کنترل‌شده هنوز پشتیبانی نمی‌شود.' });
+    }
+    if (invoice_id) {
+      const receipt = await createSalesReceipt(req.body, req.user.id, INCLUDE, req.user);
+      return res.status(201).json(financialDocumentView(req.user, receipt));
+    }
+
+    if (req.user.Role?.name !== 'admin') return res.status(403).json({ message: 'اسناد بدون مالکیت سفارش فقط برای مدیر مجازند.' });
     if (customer_id) {
       const customer = await Customer.findByPk(customer_id);
       if (!customer) return res.status(404).json({ message: 'مشتری یافت نشد.' });
-    }
-    if (invoice_id) {
-      const invoice = await Invoice.findByPk(invoice_id);
-      if (!invoice) return res.status(404).json({ message: 'فاکتور یافت نشد.' });
     }
     if (purchase_invoice_id) {
       const purchaseInvoice = await PurchaseInvoice.findByPk(purchase_invoice_id);
@@ -49,9 +60,6 @@ async function create(req, res) {
       created_by:          req.user.id,
     });
 
-    if (type === 'receipt' && invoice_id) {
-      await syncInvoicePaymentStatus(invoice_id);
-    }
     if (type === 'payment' && purchase_invoice_id) {
       await syncPurchaseInvoicePaymentStatus(purchase_invoice_id);
     }
@@ -60,7 +68,7 @@ async function create(req, res) {
     return res.status(201).json(full);
   } catch (err) {
     logger.error('treasury.create error', { error: err.message });
-    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+    return res.status(err.statusCode || 500).json({ message: err.statusCode ? err.message : 'خطای داخلی سرور.' });
   }
 }
 
@@ -82,14 +90,14 @@ async function getAll(req, res) {
 
     const result = await TreasuryTransaction.findAndCountAll({
       where,
-      include: INCLUDE,
+      include: req.user.Role?.name === 'salesperson' ? [Customer, { model: Invoice, required: true, include: [{ model: Order, required: true, where: { salesperson_id: req.user.id }, attributes: [] }] }, { model: User, as: 'creator', attributes: ['id', 'full_name'] }] : INCLUDE,
       order: [['transaction_date', 'DESC'], ['id', 'DESC']],
       limit,
       offset,
       distinct: true,
     });
 
-    return res.json(buildPaginatedResponse(result, page, limit));
+    return res.json(buildPaginatedResponse({ ...result, rows: result.rows.map(r => financialDocumentView(req.user, r)) }, page, limit));
   } catch (err) {
     logger.error('treasury.getAll error', { error: err.message });
     return res.status(500).json({ message: 'خطای داخلی سرور.' });
@@ -102,15 +110,16 @@ async function voidTransaction(req, res) {
   try {
     const record = await TreasuryTransaction.findByPk(req.params.id);
     if (!record) return res.status(404).json({ message: 'تراکنش یافت نشد.' });
+    if (record.type === 'receipt' && record.invoice_id) {
+      return res.json(financialDocumentView(req.user, await voidSalesReceipt(record.id, INCLUDE, req.user)));
+    }
+    if (req.user.Role?.name !== 'admin') return res.status(404).json({ message: 'تراکنش یافت نشد.' });
     if (record.is_voided) {
       return res.status(400).json({ message: 'این تراکنش قبلاً باطل شده است.' });
     }
 
     await record.update({ is_voided: true });
 
-    if (record.type === 'receipt' && record.invoice_id) {
-      await syncInvoicePaymentStatus(record.invoice_id);
-    }
     if (record.type === 'payment' && record.purchase_invoice_id) {
       await syncPurchaseInvoicePaymentStatus(record.purchase_invoice_id);
     }
@@ -119,7 +128,7 @@ async function voidTransaction(req, res) {
     return res.json(full);
   } catch (err) {
     logger.error('treasury.voidTransaction error', { error: err.message });
-    return res.status(500).json({ message: 'خطای داخلی سرور.' });
+    return res.status(err.statusCode || 500).json({ message: err.statusCode ? err.message : 'خطای داخلی سرور.' });
   }
 }
 

@@ -15,6 +15,7 @@ import { routesApi } from '../api/misc';
 import { useAuth } from '../context/AuthContext';
 
 function formatCurrency(value) {
+  if (value == null) return '—';
   return new Intl.NumberFormat('fa-IR').format(value) + ' تومان';
 }
 

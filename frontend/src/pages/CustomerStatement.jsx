@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Input from '../components/Input';
 import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
 import { customersApi } from '../api/customers';
+import useFinancialRefresh from '../hooks/useFinancialRefresh';
 
 function formatCurrency(v) {
   return new Intl.NumberFormat('fa-IR').format(v) + ' تومان';
@@ -15,10 +16,11 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('fa-IR');
 }
 
-const TYPE_LABEL = { invoice: 'فاکتور فروش', receipt: 'رسید دریافت' };
+const TYPE_LABEL = { invoice: 'فاکتور فروش', receipt: 'رسید دریافت', sales_credit_note: 'اعتبار لغو فروش' };
 const TYPE_COLOR = {
   invoice: 'bg-danger/8 text-danger',
   receipt: 'bg-success/8 text-success',
+  sales_credit_note: 'bg-success/8 text-success',
 };
 
 export default function CustomerStatement() {
@@ -29,19 +31,21 @@ export default function CustomerStatement() {
   const [from, setFrom]           = useState('');
   const [to, setTo]               = useState('');
 
-  function load() {
-    setLoading(true);
-    setError('');
-    customersApi.getStatement(id, { from: from || undefined, to: to || undefined })
-      .then((r) => { setStatement(r.data); setLoading(false); })
-      .catch((err) => {
-        setError(err.response?.data?.message || 'دریافت گردش مالی ناموفق بود.');
-        setLoading(false);
-      });
+  const sequence = useRef(0);
+  const applied = useRef({ from: '', to: '' });
+  async function load(filters = { from, to }) {
+    const seq = ++sequence.current;
+    applied.current = filters;
+    setLoading(true); setError(''); setStatement(null);
+    try {
+      const r = await customersApi.getStatement(id, { from: filters.from || undefined, to: filters.to || undefined });
+      if (seq === sequence.current) setStatement(r.data);
+    } catch (err) {
+      if (seq === sequence.current) setError(err.response?.data?.message || 'دریافت گردش مالی ناموفق بود.');
+    } finally { if (seq === sequence.current) setLoading(false); }
   }
-
-  useEffect(load, [id]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  useEffect(() => { load(); return () => { sequence.current++; }; }, [id]);
+  useFinancialRefresh(() => load(applied.current));
   const title = statement
     ? `گردش مالی — ${statement.customer.full_name}`
     : 'گردش مالی مشتری';
@@ -71,16 +75,16 @@ export default function CustomerStatement() {
           <div className="card rounded-2xl p-4">
             <p className="text-xs text-muted">سقف اعتبار</p>
             <p className="tabular mt-1 font-bold text-ink">
-              {statement.customer.credit_limit > 0
+              {statement.customer.credit_limit == null ? '—' : statement.customer.credit_limit > 0
                 ? formatCurrency(statement.customer.credit_limit)
                 : 'بدون محدودیت'}
             </p>
           </div>
           <div className={`card rounded-2xl p-4 ${statement.closing_balance > 0 ? 'border-danger/20 bg-danger/3' : 'border-success/20 bg-success/3'}`}>
-            <p className="text-xs text-muted">مانده جاری</p>
+            <p className="text-xs text-muted">مانده پایان بازه{statement.scope === 'salesperson_orders' && ' — فقط سفارش‌های شما'}</p><p className="text-danger">بدهی: {formatCurrency(statement.outstanding_balance)}</p><p className="text-success">بستانکاری: {formatCurrency(statement.credit_balance)}</p>
             <p className={`tabular mt-1 text-lg font-bold ${statement.closing_balance > 0 ? 'text-danger' : 'text-success'}`}>
               {formatCurrency(Math.abs(statement.closing_balance))}
-              {statement.closing_balance > 0 ? ' (بدهکار)' : ' (طلبکار)'}
+              {statement.closing_balance > 0 ? ' (بدهکار)' : statement.closing_balance < 0 ? ' (بستانکار)' : ' (بدون بدهی)'}
             </p>
           </div>
         </div>
@@ -102,14 +106,14 @@ export default function CustomerStatement() {
           onChange={(e) => setTo(e.target.value)}
           wrapperClassName="w-44"
         />
-        <Button variant="outline" onClick={load} className="mb-0.5">
+        <Button variant="outline" onClick={() => load()} className="mb-0.5" disabled={loading}>
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
           </svg>
           اعمال فیلتر
         </Button>
         {(from || to) && (
-          <Button variant="ghost" size="sm" onClick={() => { setFrom(''); setTo(''); }} className="mb-0.5">
+          <Button variant="ghost" size="sm" onClick={() => { setFrom(''); setTo(''); load({ from: '', to: '' }); }} className="mb-0.5">
             پاک کردن
           </Button>
         )}
@@ -122,6 +126,7 @@ export default function CustomerStatement() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           {error}
+          <Button variant="ghost" onClick={() => load()}>تلاش مجدد</Button>
         </div>
       )}
 
@@ -195,7 +200,7 @@ export default function CustomerStatement() {
               مانده نهایی:
               <span className={`mr-1 font-bold ${statement.closing_balance > 0 ? 'text-danger' : 'text-success'}`}>
                 {formatCurrency(Math.abs(statement.closing_balance))}
-                {statement.closing_balance > 0 ? ' (بدهکار)' : ' (طلبکار)'}
+                {statement.closing_balance > 0 ? ' (بدهکار)' : statement.closing_balance < 0 ? ' (بستانکار)' : ' (بدون بدهی)'}
               </span>
             </span>
             <span className="text-muted tabular">{statement.entries.length} ردیف</span>

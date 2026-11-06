@@ -1,4 +1,5 @@
 const { Invoice, PurchaseInvoice, TreasuryTransaction } = require('../models');
+const { cents } = require('./money');
 
 function computePaymentStatus(totalPaid, totalAmount) {
   if (totalPaid <= 0) return 'unpaid';
@@ -17,8 +18,9 @@ async function syncInvoicePaymentStatus(invoiceId, { transaction } = {}) {
     where: { invoice_id: invoiceId, type: 'receipt', is_voided: false },
     transaction,
   });
-  const totalReceived = receipts.reduce((sum, r) => sum + Number(r.amount), 0);
-  const paymentStatus = computePaymentStatus(totalReceived, invoice.total_amount);
+  const totalReceived = receipts.reduce((sum, r) => sum + cents(r.amount), 0n);
+  const paymentStatus = totalReceived <= 0n ? 'unpaid'
+    : totalReceived < cents(invoice.total_amount) ? 'partial' : 'paid';
 
   if (invoice.payment_status !== paymentStatus) {
     await invoice.update({ payment_status: paymentStatus }, { transaction });

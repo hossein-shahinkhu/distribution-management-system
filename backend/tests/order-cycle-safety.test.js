@@ -18,7 +18,7 @@ jest.mock('../src/config/database', () => {
 
 const request = require('supertest');
 const app = require('../src/app');
-const { sequelize, Order, OrderItem, Product, Customer, Distributor } = require('../src/models');
+const { sequelize, Order, OrderItem, Product, Customer, Distributor, SalesCreditNote, Invoice, TreasuryTransaction } = require('../src/models');
 const service = require('../src/services/orderService');
 const { seedRoles, createUser, tokenFor } = require('./testUtils');
 let token, customer, distributor, product, sequence = 0;
@@ -51,7 +51,7 @@ async function create(quote = false) {
 }
 function status(id, value) {
   return request(app).patch(`/api/orders/${id}/status`)
-    .set('Authorization', `Bearer ${token}`).send({ status: value });
+    .set('Authorization', `Bearer ${token}`).send({ status: value, confirmed_not_dispatched: true });
 }
 function assign(id) {
   return request(app).patch(`/api/orders/${id}/assign-distributor`)
@@ -131,7 +131,7 @@ test('failure on a later product rolls back earlier product restoration', async 
     if (this.id === second.id) throw new Error('injected second-product failure');
     return original.apply(this, args);
   });
-  await expect(service.updateOrderStatus(order.id, 'cancelled')).rejects.toThrow();
+  await expect(service.updateOrderStatus(order.id, 'cancelled', null, { actorId: 1, actorRole: 'admin', confirmedNotDispatched: true })).rejects.toThrow();
   expect(await stock()).toBe(17);
   expect((await second.reload()).stock_quantity).toBe(5);
   expect((await Order.findByPk(order.id)).status).toBe('pending');
@@ -141,10 +141,13 @@ test('failure on a later product rolls back earlier product restoration', async 
 (postgres ? describe : describe.skip)('PostgreSQL concurrent order operations', () => {
   test('two cancellations restore stock only once', async () => {
     const order = await create();
+    expect((await request(app).post('/api/invoices').set('Authorization', `Bearer ${token}`)
+      .send({ order_id: order.id, tax_rate: 0 })).status).toBe(201);
     const results = await Promise.all([status(order.id, 'cancelled'), status(order.id, 'cancelled')]);
     expect(results.map(r => r.status).sort()).toEqual([200, 400]);
     expect(await stock()).toBe(20);
     expect((await Order.findByPk(order.id)).stock_compensated).toBe(true);
+    expect(await SalesCreditNote.count({ where: { order_id: order.id } })).toBe(1);
   });
   test('assignment racing with cancellation cannot reactivate an order', async () => {
     const order = await create();
@@ -153,5 +156,56 @@ test('failure on a later product rolls back earlier product restoration', async 
     expect([200, 400]).toContain(assignment.status);
     expect((await Order.findByPk(order.id)).status).toBe('cancelled');
     expect(await stock()).toBe(20);
+  });
+  test('invoice creation racing with cancellation cannot leave an uncredited invoice', async () => {
+    const order = await create();
+    const [cancel, invoice] = await Promise.all([
+      status(order.id, 'cancelled'),
+      request(app).post('/api/invoices').set('Authorization', `Bearer ${token}`)
+        .send({ order_id: order.id, tax_rate: 0 }),
+    ]);
+    expect(cancel.status).toBe(200);
+    expect([201, 400]).toContain(invoice.status);
+    expect(await SalesCreditNote.count({ where: { order_id: order.id } })).toBe(invoice.status === 201 ? 1 : 0);
+    expect((await Order.findByPk(order.id)).status).toBe('cancelled');
+    expect(await stock()).toBe(20);
+  });
+  test('receipt racing with cancellation is either committed before credit or rejected', async () => {
+    const order = await create();
+    const issued = await request(app).post('/api/invoices').set('Authorization', `Bearer ${token}`)
+      .send({ order_id: order.id, tax_rate: 0 });
+    expect(issued.status).toBe(201);
+    const [cancel, receipt] = await Promise.all([
+      status(order.id, 'cancelled'),
+      request(app).post('/api/treasury').set('Authorization', `Bearer ${token}`)
+        .send({ type: 'receipt', amount: 50, method: 'cash', invoice_id: issued.body.id }),
+    ]);
+    expect(cancel.status).toBe(200);
+    expect([201, 409]).toContain(receipt.status);
+    expect(await SalesCreditNote.count({ where: { order_id: order.id } })).toBe(1);
+    expect(await TreasuryTransaction.count({ where: { invoice_id: issued.body.id } })).toBe(receipt.status === 201 ? 1 : 0);
+    const account = await request(app).get(`/api/customers/${customer.id}/credit-usage`)
+      .set('Authorization', `Bearer ${token}`);
+    // Other tests share this customer; compare against the full statement.
+    const statement = await request(app).get(`/api/customers/${customer.id}/statement`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(account.body.account_balance).toBe(statement.body.closing_balance);
+    expect(await stock()).toBe(20);
+  });
+  test('concurrent receipts and a void cannot leave a stale payment status', async () => {
+    const order = await create();
+    const issued = await request(app).post('/api/invoices').set('Authorization', `Bearer ${token}`)
+      .send({ order_id: order.id, tax_rate: 0 });
+    expect(issued.status).toBe(201);
+    const sendReceipt = (amount) => request(app).post('/api/treasury').set('Authorization', `Bearer ${token}`)
+      .send({ type: 'receipt', amount, method: 'cash', invoice_id: issued.body.id });
+    const first = await sendReceipt(100);
+    expect(first.status).toBe(201);
+    const results = await Promise.all([
+      sendReceipt(200),
+      request(app).patch(`/api/treasury/${first.body.id}/void`).set('Authorization', `Bearer ${token}`),
+    ]);
+    expect(results.map(r => r.status)).toEqual([201, 200]);
+    expect((await Invoice.findByPk(issued.body.id)).payment_status).toBe('partial'); // total 300, net receipts 200
   });
 });

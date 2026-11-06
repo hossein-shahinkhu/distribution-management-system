@@ -124,7 +124,11 @@ describe('GET /api/customers/:id/statement — گردش مالی مشتری', ()
 
     expect(res.status).toBe(200);
     expect(res.body.entries).toHaveLength(0);
-    expect(res.body.closing_balance).toBe(0);
+    const full = await request(app)
+      .get(`/api/customers/${customer.id}/statement`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.body.opening_balance).toBe(full.body.closing_balance);
+    expect(res.body.closing_balance).toBe(full.body.closing_balance);
   });
 
   test('دسترسی warehouse_keeper به گردش مالی مشتری رد می‌شود (403)', async () => {
