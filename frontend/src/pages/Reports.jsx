@@ -10,8 +10,10 @@ import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
 import { reportsApi } from '../api/misc';
 import { useAuth } from '../context/AuthContext';
+import { financialError } from '../utils/financial';
 
 function formatCurrency(value) {
+  if (value == null) return '—';
   return new Intl.NumberFormat('fa-IR').format(value) + ' تومان';
 }
 
@@ -32,6 +34,7 @@ export default function Reports() {
   const [sales,     setSales]     = useState(null);
   const [inventory, setInventory] = useState(null);
   const [loading,   setLoading]   = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const [commissionFrom,    setCommissionFrom]    = useState('');
   const [commissionTo,      setCommissionTo]      = useState('');
@@ -39,12 +42,17 @@ export default function Reports() {
   const [commissionsLoading, setCommissionsLoading] = useState(false);
 
   useEffect(() => {
-    Promise.all([reportsApi.sales({}), reportsApi.inventory()]).then(([s, inv]) => {
-      setSales(s.data);
-      setInventory(inv.data);
-      setLoading(false);
-    });
-  }, []);
+    const emptySales = { byStatus: {}, totalRevenue: null, totalOrders: '—' };
+    const emptyInventory = { products: [], lowStockCount: '—', totalInventoryValue: null };
+    Promise.all([
+      ['admin', 'salesperson'].includes(user?.role) ? reportsApi.sales({}) : Promise.resolve(null),
+      ['admin', 'warehouse_keeper'].includes(user?.role) ? reportsApi.inventory() : Promise.resolve(null),
+    ]).then(([s, inv]) => {
+      setSales(s?.data || emptySales);
+      setInventory(inv?.data || emptyInventory);
+    }).catch(err => { setLoadError(financialError(err)); setSales(emptySales); setInventory(emptyInventory); })
+      .finally(() => setLoading(false));
+  }, [user]);
 
   function loadCommissions() {
     if (user?.role !== 'admin') return;
@@ -86,6 +94,7 @@ export default function Reports() {
 
   return (
     <Layout title="گزارش‌ها">
+      {loadError && <div className="banner banner-error mb-4" role="alert">{loadError}</div>}
       {/* ── KPIs ── */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard

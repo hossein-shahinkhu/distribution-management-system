@@ -116,7 +116,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     Promise.all([
-      reportsApi.sales().then((r) => r.data).catch(() => null),
+      ['admin', 'salesperson'].includes(user?.role)
+        ? reportsApi.sales().then((r) => r.data).catch(() => null)
+        : Promise.resolve(null),
       ordersApi.getAll({ limit: 10 }).then((r) => r.data.data).catch(() => []),
       user?.role === 'admin' || user?.role === 'warehouse_keeper'
         ? productsApi.lowStock().then((r) => r.data).catch(() => [])

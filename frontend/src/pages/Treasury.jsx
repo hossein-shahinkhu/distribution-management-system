@@ -1,5 +1,5 @@
 import useFinancialRefresh from '../hooks/useFinancialRefresh';
-import { financialError } from '../utils/financial';
+import { financialError, formatExactMoney, isNegativeExactMoney } from '../utils/financial';
 import { useEffect, useRef, useState } from 'react';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
@@ -10,6 +10,7 @@ import EmptyState from '../components/EmptyState';
 import Pagination from '../components/Pagination';
 import { treasuryApi, invoicesApi } from '../api/misc';
 import { customersApi } from '../api/customers';
+import { useAuth } from '../context/AuthContext';
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('fa-IR').format(value) + ' تومان';
@@ -25,12 +26,9 @@ const EMPTY_FORM = {
 };
 
 /* ── Balance summary hero card ───────────────────────────── */
-function BalanceSummary({ transactions }) {
-  const activeTransactions = transactions.filter((t) => !t.is_voided);
-  const totalReceipts  = activeTransactions.filter((t) => t.type === 'receipt').reduce((s, t) => s + Number(t.amount), 0);
-  const totalPayments  = activeTransactions.filter((t) => t.type === 'payment').reduce((s, t) => s + Number(t.amount), 0);
-  const netBalance     = totalReceipts - totalPayments;
-  const isPositive     = netBalance >= 0;
+function BalanceSummary({ summary }) {
+  const { total_receipts: totalReceipts, total_payments: totalPayments, net_balance: netBalance } = summary;
+  const isPositive = !isNegativeExactMoney(netBalance);
 
   return (
     <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -38,9 +36,9 @@ function BalanceSummary({ transactions }) {
       <div className="card rounded-2xl p-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted">کل دریافتی</p>
+            <p className="text-xs text-muted">دریافتی در محدوده فیلتر</p>
             <p className="tabular mt-1 text-lg font-bold text-success">
-              {formatCurrency(totalReceipts)}
+              {formatExactMoney(totalReceipts)}
             </p>
           </div>
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-success/10">
@@ -55,9 +53,9 @@ function BalanceSummary({ transactions }) {
       <div className="card rounded-2xl p-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted">کل پرداختی</p>
+            <p className="text-xs text-muted">پرداختی در محدوده فیلتر</p>
             <p className="tabular mt-1 text-lg font-bold text-danger">
-              {formatCurrency(totalPayments)}
+              {formatExactMoney(totalPayments)}
             </p>
           </div>
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-danger/10">
@@ -72,9 +70,9 @@ function BalanceSummary({ transactions }) {
       <div className={`card rounded-2xl p-4 ${isPositive ? 'border-success/30 bg-success/3' : 'border-danger/30 bg-danger/3'}`}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted">مانده خالص</p>
+            <p className="text-xs text-muted">خالص گردش در محدوده فیلتر</p>
             <p className={`tabular mt-1 text-lg font-bold ${isPositive ? 'text-success' : 'text-danger'}`}>
-              {isPositive ? '+' : ''}{formatCurrency(netBalance)}
+              {isPositive ? '+' : ''}{formatExactMoney(netBalance)}
             </p>
           </div>
           <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${isPositive ? 'bg-success/10' : 'bg-danger/10'}`}>
@@ -89,6 +87,9 @@ function BalanceSummary({ transactions }) {
 }
 
 export default function Treasury() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [summary, setSummary] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [pagination, setPagination]     = useState({ page: 1, totalPages: 1 });
   const [typeFilter, setTypeFilter]     = useState('');
@@ -108,13 +109,14 @@ export default function Treasury() {
   const referenceSequence = useRef(0);
   function load(page = 1) {
     const seq = ++sequence.current;
-    setLoading(true); setLoadError('');
+    setLoading(true); setLoadError(''); setSummary(null);
     return treasuryApi
-      .getAll({ type: typeFilter || undefined, from: dateFrom || undefined, to: dateTo || undefined, page })
+      .getAll({ include_summary: true, type: typeFilter || undefined, from: dateFrom || undefined, to: dateTo || undefined, page })
       .then((r) => {
         if (seq !== sequence.current) return;
         setTransactions(r.data.data);
         setPagination(r.data.pagination);
+        setSummary(r.data.summary);
       }).catch(err => { if (seq === sequence.current) { setTransactions([]); setLoadError(financialError(err)); } }).finally(() => { if (seq === sequence.current) setLoading(false); });
   }
 
@@ -128,11 +130,14 @@ export default function Treasury() {
     const seq = ++referenceSequence.current;
     setReferenceError('');
     try {
-      const [c, inv] = await Promise.all([customersApi.getAll({ limit: 100 }), invoicesApi.getAll()]);
-      if (seq === referenceSequence.current) { setCustomers(c.data.data); setInvoices(inv.data); }
+      const [c, inv] = await Promise.all([isAdmin ? customersApi.getAll({ limit: 100 }) : Promise.resolve(null), invoicesApi.getAll()]);
+      if (seq === referenceSequence.current) {
+        setCustomers(c ? c.data.data : [...new Map(inv.data.map(i => [i.Order.Customer.id, i.Order.Customer])).values()]);
+        setInvoices(inv.data);
+      }
     } catch (err) { if (seq === referenceSequence.current) { setInvoices([]); setReferenceError(financialError(err)); } }
   }
-  useEffect(() => { refreshReferences(); }, []);
+  useEffect(() => { refreshReferences(); }, [isAdmin]);
   useFinancialRefresh(() => { load(pagination.page); refreshReferences(); });
   function openCreate(prefill = {}) {
     setForm({ ...EMPTY_FORM, ...prefill });
@@ -152,10 +157,14 @@ export default function Treasury() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    if (!isAdmin && !outstandingInvoicesFor(form.customer_id).some(i => i.id === Number(form.invoice_id))) {
+      setError('برای دریافت، فاکتور مجاز مربوط به سفارش خود را انتخاب کنید.');
+      return;
+    }
     setSaving(true);
     try {
       await treasuryApi.create({
-        ...form,
+        ...form, type: isAdmin ? form.type : 'receipt',
         amount: Number(form.amount),
         customer_id: form.customer_id || null,
         invoice_id: form.type === 'receipt' ? form.invoice_id || null : null,
@@ -176,16 +185,7 @@ export default function Treasury() {
     try { await treasuryApi.void(id); await load(pagination.page); await refreshReferences(); }
     catch (err) { setLoadError(financialError(err)); }
   }
-  // Running balance (chronological reverse order)
-  const chronological = [...transactions].reverse();
-  let runningBalance = 0;
-  const balanceById = {};
-  for (const t of chronological) {
-    if (!t.is_voided) {
-      runningBalance += t.type === 'receipt' ? Number(t.amount) : -Number(t.amount);
-    }
-    balanceById[t.id] = runningBalance;
-  }
+  const canCreate = isAdmin || invoices.some(i => i.document_status === 'active' && i.outstanding_amount > 0);
 
   function f(v) { setForm((p) => ({ ...p, ...v })); }
 
@@ -193,7 +193,7 @@ export default function Treasury() {
     <Layout title="خزانه‌داری">
       {(loadError || referenceError) && <div className="banner banner-error mb-5" role="alert">{loadError || referenceError}<Button variant="ghost" onClick={() => { load(pagination.page); refreshReferences(); }}>تلاش مجدد</Button></div>}
       {/* ── Balance summary hero ── */}
-      {!loading && <BalanceSummary transactions={transactions} />}
+      {!loading && summary && <BalanceSummary summary={summary} />}
       {loading && (
         <div className="mb-5 grid grid-cols-3 gap-3">
           {[1, 2, 3].map((i) => (
@@ -227,12 +227,12 @@ export default function Treasury() {
             wrapperClassName="w-44"
           />
         </div>
-        <Button onClick={() => openCreate()}>
+        {canCreate && <Button onClick={() => openCreate()}>
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           ثبت تراکنش جدید
-        </Button>
+        </Button>}
       </div>
 
       {/* ── Table ── */}
@@ -247,7 +247,7 @@ export default function Treasury() {
                 <th>روش</th>
                 <th>مشتری</th>
                 <th>فاکتور</th>
-                <th>مانده تجمعی</th>
+                <th>مانده تجمعی در محدوده فیلتر</th>
                 <th className="w-20"></th>
               </tr>
             </thead>
@@ -269,17 +269,17 @@ export default function Treasury() {
                       title="هنوز تراکنشی ثبت نشده"
                       description="اولین دریافت یا پرداخت را ثبت کنید."
                       action={
-                        <Button onClick={() => openCreate()} size="sm">
+                        canCreate ? <Button onClick={() => openCreate()} size="sm">
                           ثبت تراکنش
-                        </Button>
+                        </Button> : undefined
                       }
                     />
                   </td>
                 </tr>
               ) : (
                 transactions.map((t) => {
-                  const balance = balanceById[t.id];
-                  const balancePositive = balance >= 0;
+                  const balance = t.running_balance;
+                  const balancePositive = !isNegativeExactMoney(balance);
                   return (
                     <tr key={t.id} className={t.is_voided ? 'opacity-40 line-through' : ''}>
                       <td className="tabular text-muted text-sm">
@@ -304,13 +304,13 @@ export default function Treasury() {
                       <td className="text-muted">{t.Customer?.full_name || '—'}</td>
                       <td className="tabular text-xs text-muted">{t.Invoice?.invoice_number || '—'}</td>
                       <td className={`tabular font-bold text-sm ${balancePositive ? 'text-success' : 'text-danger'}`}>
-                        {balancePositive ? '' : '−'}{formatCurrency(Math.abs(balance))}
+                        {formatExactMoney(balance)}
                       </td>
                       <td>
                         {t.is_voided ? (
                           <span className="text-xs text-muted">باطل‌شده</span>
                         ) : (
-                          <button
+                          (isAdmin || (t.type === 'receipt' && t.invoice_id)) && <button
                             onClick={() => handleVoid(t.id)}
                             className="text-xs font-medium text-danger hover:underline"
                           >
@@ -338,7 +338,7 @@ export default function Treasury() {
             onChange={(e) => f({ type: e.target.value, invoice_id: '', customer_id: '' })}
           >
             <option value="receipt">دریافت (ورود پول)</option>
-            <option value="payment">پرداخت (خروج پول)</option>
+            {isAdmin && <option value="payment">پرداخت (خروج پول)</option>}
           </Select>
           <div className="grid grid-cols-2 gap-3">
             <Input
@@ -368,22 +368,24 @@ export default function Treasury() {
             required
           />
           {form.type === 'receipt' && <Select
-            label="مشتری (اختیاری)"
+            label={isAdmin ? 'مشتری (اختیاری)' : 'مشتری'}
+            required={!isAdmin}
             value={form.customer_id}
             onChange={(e) => f({ customer_id: e.target.value, invoice_id: '' })}
           >
-            <option value="">بدون مشتری مشخص</option>
+            <option value="">{isAdmin ? 'بدون مشتری مشخص' : 'انتخاب مشتری'}</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>{c.full_name}</option>
             ))}
           </Select>}
           {form.type === 'receipt' && form.customer_id && (
             <Select
-              label="اتصال به فاکتور (اختیاری)"
+              label={isAdmin ? 'اتصال به فاکتور (اختیاری)' : 'فاکتور سفارش شما'}
+              required={!isAdmin}
               value={form.invoice_id}
               onChange={(e) => f({ invoice_id: e.target.value })}
             >
-              <option value="">بدون اتصال به فاکتور</option>
+              <option value="">{isAdmin ? 'بدون اتصال به فاکتور' : 'انتخاب فاکتور'}</option>
               {outstandingInvoicesFor(form.customer_id).map((inv) => (
                 <option key={inv.id} value={inv.id}>
                   {inv.invoice_number} — {formatCurrency(inv.outstanding_amount)}

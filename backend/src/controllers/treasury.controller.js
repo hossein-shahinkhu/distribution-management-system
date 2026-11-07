@@ -1,6 +1,7 @@
-const { Op } = require('sequelize');
+const { Op, literal, Transaction } = require('sequelize');
+const { cents, decimalAmount } = require('../utils/money');
 const { financialDocumentView } = require('../utils/financialAccess');
-const { TreasuryTransaction, Customer, Invoice, PurchaseInvoice, User, Order } = require('../models');
+const { sequelize, TreasuryTransaction, Customer, Invoice, PurchaseInvoice, User, Order } = require('../models');
 const { parsePagination, buildPaginatedResponse } = require('../utils/queryHelpers');
 const { syncPurchaseInvoicePaymentStatus } = require('../utils/invoicePaymentSync');
 const logger = require('../utils/logger');
@@ -72,9 +73,12 @@ async function create(req, res) {
   }
 }
 
+// GET ?include_summary=true adds scoped totals and each row's running_balance.
+// The running balance starts at zero within the selected filters, not before from.
+// All four aggregate fields are exact decimal strings in toman, with two decimals.
 async function getAll(req, res) {
   try {
-    const { type, customer_id, invoice_id, purchase_invoice_id, from, to } = req.query;
+    const { type, customer_id, invoice_id, purchase_invoice_id, from, to, is_voided } = req.query;
     const { page, limit, offset } = parsePagination(req.query);
 
     const where = {};
@@ -82,22 +86,53 @@ async function getAll(req, res) {
     if (customer_id)         where.customer_id         = customer_id;
     if (invoice_id)          where.invoice_id          = invoice_id;
     if (purchase_invoice_id) where.purchase_invoice_id = purchase_invoice_id;
+    if (is_voided !== undefined) {
+      if (!['true', 'false'].includes(is_voided)) return res.status(400).json({ message: 'وضعیت ابطال نامعتبر است.' });
+      where.is_voided = is_voided === 'true';
+    }
     if (from || to) {
       where.transaction_date = {};
       if (from) where.transaction_date[Op.gte] = new Date(from);
       if (to)   where.transaction_date[Op.lte] = new Date(to);
+      if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) where.transaction_date[Op.lte].setUTCHours(23, 59, 59, 999);
+      if ((from && !Number.isFinite(where.transaction_date[Op.gte].getTime())) ||
+          (to && !Number.isFinite(where.transaction_date[Op.lte].getTime())) ||
+          (from && to && where.transaction_date[Op.gte] > where.transaction_date[Op.lte])) {
+        return res.status(400).json({ message: 'بازه تاریخ نامعتبر است.' });
+      }
     }
 
-    const result = await TreasuryTransaction.findAndCountAll({
-      where,
-      include: req.user.Role?.name === 'salesperson' ? [Customer, { model: Invoice, required: true, include: [{ model: Order, required: true, where: { salesperson_id: req.user.id }, attributes: [] }] }, { model: User, as: 'creator', attributes: ['id', 'full_name'] }] : INCLUDE,
-      order: [['transaction_date', 'DESC'], ['id', 'DESC']],
-      limit,
-      offset,
-      distinct: true,
-    });
+    const ownerInclude = req.user.Role?.name === 'salesperson' ? [{ model: Invoice, attributes: [], required: true,
+      include: [{ model: Order, required: true, where: { salesperson_id: req.user.id }, attributes: [] }] }] : [];
+    const includeSummary = req.query.include_summary === 'true';
+    // Both aggregates and the page use the same scope and PostgreSQL snapshot.
+    const read = async (transaction) => {
+      const result = await TreasuryTransaction.findAndCountAll({
+        where,
+        include: req.user.Role?.name === 'salesperson' ? [Customer, { model: Invoice, required: true, include: [{ model: Order, required: true, where: { salesperson_id: req.user.id }, attributes: [] }] }, { model: User, as: 'creator', attributes: ['id', 'full_name'] }] : INCLUDE,
+        order: [['transaction_date', 'DESC'], ['id', 'DESC']],
+        limit,
+        offset,
+        distinct: true,
+        transaction,
+        ...(includeSummary ? { attributes: { include: [[literal(`CAST(SUM(CASE WHEN "TreasuryTransaction"."is_voided" = true THEN 0 WHEN "TreasuryTransaction"."type" = 'receipt' THEN "TreasuryTransaction"."amount" ELSE -"TreasuryTransaction"."amount" END) OVER (ORDER BY "TreasuryTransaction"."transaction_date", "TreasuryTransaction"."id" ROWS UNBOUNDED PRECEDING) AS TEXT)`), 'running_balance']] } } : {}),
+      });
 
-    return res.json(buildPaginatedResponse({ ...result, rows: result.rows.map(r => financialDocumentView(req.user, r)) }, page, limit));
+      const response = buildPaginatedResponse({ ...result, rows: result.rows.map(r => {
+        const data = financialDocumentView(req.user, r);
+        if (includeSummary) data.running_balance = decimalAmount(cents(data.running_balance));
+        return data;
+      }) }, page, limit);
+      if (includeSummary) {
+        const [totals] = await TreasuryTransaction.findAll({ where, include: ownerInclude, raw: true, transaction,
+          attributes: ['receipt', 'payment'].map(type => [literal(`CAST(SUM(CASE WHEN "TreasuryTransaction"."is_voided" = false AND "TreasuryTransaction"."type" = '${type}' THEN "TreasuryTransaction"."amount" ELSE 0 END) AS TEXT)`), type]),
+        });
+        const receipts = cents(totals.receipt), payments = cents(totals.payment);
+        response.summary = { total_receipts: decimalAmount(receipts), total_payments: decimalAmount(payments), net_balance: decimalAmount(receipts - payments) };
+      }
+      return response;
+    };
+    return res.json(includeSummary ? await sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ }, read) : await read());
   } catch (err) {
     logger.error('treasury.getAll error', { error: err.message });
     return res.status(500).json({ message: 'خطای داخلی سرور.' });

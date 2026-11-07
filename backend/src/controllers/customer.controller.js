@@ -20,7 +20,17 @@ async function getAll(req, res) {
     }
 
     const result = await Customer.findAndCountAll({ where, order: [['id', 'DESC']], limit, offset });
-    return res.json(buildPaginatedResponse({ ...result, rows: result.rows.map(c => { const data = c.toJSON(); if (req.user.Role?.name !== 'admin') delete data.credit_limit; return data; }) }, page, limit));
+    // Optional UI hint only; statement/credit endpoints still enforce ownership.
+    const includeAccess = req.query.include_financial_access === 'true';
+    const owned = includeAccess && req.user.Role?.name === 'salesperson' && result.rows.length
+      ? await Order.findAll({ where: { customer_id: { [Op.in]: result.rows.map(c => c.id) }, salesperson_id: req.user.id }, attributes: ['customer_id'], group: ['customer_id'], raw: true }) : [];
+    const ownedIds = new Set(owned.map(o => o.customer_id));
+    return res.json(buildPaginatedResponse({ ...result, rows: result.rows.map(c => {
+      const data = c.toJSON();
+      if (req.user.Role?.name !== 'admin') delete data.credit_limit;
+      if (includeAccess) data.can_view_financials = req.user.Role?.name === 'admin' || ownedIds.has(c.id);
+      return data;
+    }) }, page, limit));
   } catch (err) {
     return res.status(500).json({ message: 'خطای سرور' });
   }

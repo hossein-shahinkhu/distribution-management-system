@@ -1,5 +1,5 @@
 import useFinancialRefresh from '../hooks/useFinancialRefresh';
-import { documentLabels, settlementLabels, financialError } from '../utils/financial';
+import { documentLabels, settlementLabels, financialError, formatPersianDate } from '../utils/financial';
 import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
@@ -421,9 +421,7 @@ export default function OrderDetail() {
             <InfoRow label="شماره سفارش" value={order.order_number} />
             <InfoRow
               label="تاریخ ثبت"
-              value={order.created_at
-                ? new Date(order.created_at).toLocaleDateString('fa-IR')
-                : '—'}
+              value={formatPersianDate(order.createdAt ?? order.created_at)}
             />
             {order.salesperson_name && (
               <InfoRow label="فروشنده" value={order.salesperson_name} />

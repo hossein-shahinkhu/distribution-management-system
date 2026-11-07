@@ -36,23 +36,25 @@ export default function Customers() {
   const sequence = useRef(0);
   const [loadError, setLoadError] = useState('');
   const [financialErrors, setFinancialErrors] = useState({});
+  const [financialUnavailable, setFinancialUnavailable] = useState({});
   async function load(page = 1) {
     const seq = ++sequence.current;
-    setLoading(true); setLoadError(''); setCreditUsage({}); setFinancialErrors({});
+    setLoading(true); setLoadError(''); setCreditUsage({}); setFinancialErrors({}); setFinancialUnavailable({});
     try {
-      const r = await customersApi.getAll({ search, page });
+      const r = await customersApi.getAll({ search, page, include_financial_access: true });
       if (seq !== sequence.current) return;
       setCustomers(r.data.data); setPagination(r.data.pagination);
       const rows = r.data.data;
-      const results = await Promise.allSettled(rows.map(c => customersApi.getCreditUsage(c.id)));
+      const results = await Promise.allSettled(rows.map(c => c.can_view_financials ? customersApi.getCreditUsage(c.id) : Promise.resolve(null)));
       if (seq !== sequence.current) return;
-      const values = {}, failures = {};
+      const values = {}, failures = {}, unavailable = {};
       results.forEach((result, index) => {
         const id = rows[index].id;
-        if (result.status === 'fulfilled') values[id] = result.value.data;
+        if (result.status === 'fulfilled' && result.value) values[id] = result.value.data;
+        else if (result.status === 'fulfilled' || (user?.role === 'salesperson' && result.reason.response?.status === 404)) unavailable[id] = true;
         else failures[id] = financialError(result.reason);
       });
-      setCreditUsage(values); setFinancialErrors(failures);
+      setCreditUsage(values); setFinancialErrors(failures); setFinancialUnavailable(unavailable);
     } catch (err) {
       if (seq === sequence.current) { setLoadError(financialError(err)); setCustomers([]); }
     } finally { if (seq === sequence.current) setLoading(false); }
@@ -109,9 +111,10 @@ export default function Customers() {
   }
 
   async function handleDelete(id) {
+    if (!canManageCredit) return;
     if (!confirm('این مشتری حذف شود؟')) return;
-    await customersApi.remove(id);
-    load(pagination.page);
+    try { await customersApi.remove(id); await load(pagination.page); }
+    catch (err) { setLoadError(financialError(err)); }
   }
 
   function f(v) { setForm((p) => ({ ...p, ...v })); }
@@ -251,7 +254,7 @@ export default function Customers() {
                           <span className="text-xs text-muted">بدون محدودیت{usage?.credit_balance > 0 && <span className="block text-success">بستانکاری: {new Intl.NumberFormat('fa-IR').format(usage.credit_balance)} تومان</span>}</span>
                         )}
                       </td>
-<td>{financialErrors[c.id] ? <span className="text-danger" role="alert">{financialErrors[c.id]}</span> : usage ? <>{usage.scope === 'salesperson_orders' && <span className="block text-muted">فقط سفارش‌های شما</span>}<span className="block text-danger">بدهی: {formatMoney(usage.outstanding_balance)}</span><span className="block text-success">بستانکاری: {formatMoney(usage.credit_balance)}</span></> : <span>در حال دریافت مانده…</span>}</td>
+<td>{financialErrors[c.id] ? <span className="text-danger" role="alert">{financialErrors[c.id]}</span> : financialUnavailable[c.id] ? <span className="text-muted">مانده قابل نمایش نیست</span> : usage ? <>{usage.scope === 'salesperson_orders' && <span className="block text-muted">فقط سفارش‌های شما</span>}<span className="block text-danger">بدهی: {formatMoney(usage.outstanding_balance)}</span><span className="block text-success">بستانکاری: {formatMoney(usage.credit_balance)}</span></> : <span>در حال دریافت مانده…</span>}</td>
                       {/* Actions */}
                       <td>
                         <div className="flex items-center gap-2">
@@ -261,20 +264,18 @@ export default function Customers() {
                           >
                             ویرایش
                           </button>
-                          <span className="text-border">|</span>
-                          <Link
+                          {c.can_view_financials && <><span className="text-border">|</span><Link
                             to={`/customers/${c.id}/statement`}
                             className="text-xs font-medium text-[#7C5CBF] transition hover:underline"
                           >
                             گردش مالی
-                          </Link>
-                          <span className="text-border">|</span>
-                          <button
+                          </Link></>}
+                          {canManageCredit && <><span className="text-border">|</span><button
                             onClick={() => handleDelete(c.id)}
                             className="text-xs font-medium text-danger transition hover:text-danger/80 hover:underline"
                           >
                             حذف
-                          </button>
+                          </button></>}
                         </div>
                       </td>
                     </tr>

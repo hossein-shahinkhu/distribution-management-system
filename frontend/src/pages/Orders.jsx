@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { financialError } from '../utils/financial';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import Button from '../components/Button';
@@ -101,6 +102,8 @@ export default function Orders() {
   const [modalOpen, setModalOpen]     = useState(false);
   const [error, setError]             = useState('');
   const [saving, setSaving]           = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const sequence = useRef(0);
 
   /* ── New-order form state ── */
   const [customerId, setCustomerId]   = useState('');
@@ -111,8 +114,9 @@ export default function Orders() {
 
   /* ── Server fetch ── */
   const load = useCallback((page = 1) => {
-    setLoading(true);
-    ordersApi
+    const seq = ++sequence.current;
+    setLoading(true); setLoadError(''); setOrders([]);
+    return ordersApi
       .getAll({
         search,
         status,
@@ -124,22 +128,25 @@ export default function Orders() {
         page,
       })
       .then((r) => {
+        if (seq !== sequence.current) return;
         setOrders(r.data.data);
         setPagination(r.data.pagination);
-        setLoading(false);
-      });
+      }).catch(err => {
+        if (seq === sequence.current) { setOrders([]); setLoadError(financialError(err)); setPagination({ page, totalPages: 1 }); }
+      }).finally(() => { if (seq === sequence.current) setLoading(false); });
   }, [search, status, routeId, advanced]);
 
   /* Re-fetch when server-side filters change (debounced for search) */
   useEffect(() => {
     const t = setTimeout(() => load(1), 300);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); sequence.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, status, routeId, advanced]);
 
   /* Load routes once */
   useEffect(() => {
-    routesApi.getAll().then((r) => setRoutes(r.data));
+    routesApi.getAll().then((r) => setRoutes(r.data)).catch(err => setLoadError(financialError(err)));
+    return () => { sequence.current++; };
   }, []);
 
   // فیلتر advanced روی backend انجام می‌شود؛ orders مستقیم نمایش داده می‌شود
@@ -183,7 +190,7 @@ export default function Orders() {
     ]).then(([c, p]) => {
       setCustomers(c.data.data);
       setProducts(p.data.data.filter((prod) => prod.is_active));
-    });
+    }).catch(err => { setCustomers([]); setProducts([]); setError(financialError(err)); });
     setModalOpen(true);
   }
 
@@ -228,6 +235,7 @@ export default function Orders() {
 
   return (
     <Layout title="سفارش‌ها">
+      {loadError && <div className="banner banner-error mb-4" role="alert">{loadError}<Button onClick={() => load(pagination.page)} disabled={loading}>تلاش مجدد</Button></div>}
       {/* ══════════════════════════════════════════════════════════
           Toolbar row: search + status + route + advanced toggle
       ══════════════════════════════════════════════════════════ */}
@@ -437,7 +445,7 @@ export default function Orders() {
                   <td colSpan={5}>
                     <EmptyState
                       title={
-                        orders.length === 0
+                        loadError ? 'اطلاعات دریافت نشد' : orders.length === 0
                           ? 'هنوز سفارشی ثبت نشده'
                           : 'نتیجه‌ای یافت نشد'
                       }

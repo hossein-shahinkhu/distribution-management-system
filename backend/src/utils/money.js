@@ -13,4 +13,11 @@ function cents(value) {
   return match[1] ? -result : result;
 }
 function amount(value) { return Number(value) / 100; }
-module.exports = { cents, amount };
+// Exact JSON in the existing currency unit (toman), always two decimals.
+// Additive: legacy amount() consumers retain their numeric contract.
+function decimalAmount(value) {
+  if (typeof value !== 'bigint') throw new TypeError('Integer hundredths required');
+  const unsigned = value < 0n ? -value : value;
+  return `${value < 0n ? '-' : ''}${unsigned / 100n}.${(unsigned % 100n).toString().padStart(2, '0')}`;
+}
+module.exports = { cents, amount, decimalAmount };
